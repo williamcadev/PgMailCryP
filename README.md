@@ -112,7 +112,7 @@ Pour vérifier les sources avec Node.js 22.18+ et pnpm 11.29.0 :
 pnpm install --frozen-lockfile
 pnpm check
 pnpm test
-node --test infra/local/render.test.mjs
+node --test infra/local/*.test.mjs
 ```
 
 ## Ce que le serveur peut encore voir
@@ -165,3 +165,10 @@ PgMailCryP s’appuie sur Doota, projet d’Ethercorps, sous licence Apache-2.0.
 La [documentation Doota d’origine](DOOTA_UPSTREAM_README.md) est conservée
 séparément pour référence. Ses fonctions, domaines et garanties historiques
 ne décrivent pas automatiquement PgMailCryP.
+
+Stalwart reste un composant distinct téléchargé depuis son image officielle.
+Sa version Community est sous AGPL-3.0, avec une licence commerciale proposée
+par Stalwart Labs. Ses licences, notices et sources restent celles du
+[projet Stalwart](https://github.com/stalwartlabs/stalwart/tree/v1.2.1/LICENSES).
+Une seule machine et une seule installation suffisent ; plusieurs services
+internes assurent l’application, le transport et leurs reprises indépendantes.
