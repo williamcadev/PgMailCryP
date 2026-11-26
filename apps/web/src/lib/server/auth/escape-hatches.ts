@@ -20,6 +20,11 @@ import { invalidateDomainCache } from "@doota/db/org-domains";
 import { tryCatch } from "$lib/utils/try-catch.js";
 import type { Auth } from "$lib/server/auth.js";
 import type { ZoneOnboardStatus } from "$lib/server/cloudflare.js";
+import { SETUP_TOKEN } from '$app/env/private';
+import { error } from '@sveltejs/kit';
+import { bundledInstallation } from '$lib/server/installation';
+import * as mail from '@doota/db/mail.schema';
+import { setupSchema } from '$lib/shared/model/auth.zod.schema';
 
 type Ctx = Awaited<Auth["$context"]>;
 type Db = DrizzleD1Database<typeof schema>;
@@ -83,6 +88,52 @@ export async function createGenesisSuperadmin(input: {
     throw linkError;
   }
   return { id: createdUser.id };
+}
+
+/**
+ * Bundled genesis, authorized by the deployer's one-time token and an empty DB.
+ * No authenticated organization API exists yet. Reserve the organization before
+ * creating the first user to fence concurrent setup requests, then atomically
+ * attach ownership, personal mailbox and grant. "active" means LOCAL routing;
+ * it does not assert public DNS or Cloudflare verification. MFA is not bypassed.
+ */
+export async function createBundledGenesis(input: Parameters<typeof setupSchema.parse>[0]) {
+  const value = setupSchema.parse(input);
+  if (!SETUP_TOKEN || value.setupToken !== SETUP_TOKEN) error(403, 'Jeton de configuration invalide.');
+  const { locals, platform } = getRequestEvent();
+  const config = bundledInstallation(platform?.env);
+  if (!config || !value.mailboxLocalPart) error(400, 'Installation groupée ou adresse locale manquante.');
+  if (`${value.mailboxLocalPart}@${config.domain}`.length > 254) error(400, 'Adresse de messagerie trop longue.');
+  const emailDomain = value.email.toLowerCase().split('@')[1];
+  if (emailDomain === config.domain || emailDomain.endsWith(`.${config.domain}`)) error(400, 'Utilise une adresse de connexion externe au domaine installé.');
+  const db = locals.db;
+  if (await db.$count(schema.user)) error(409, 'La configuration initiale est déjà terminée.');
+  const orgId = 'pgmailcryp-bundled';
+  const claim = await db.insert(schema.organization).values({ id: orgId, name: config.domain, slug: orgId, domain: config.domain, status: 'active', metadata: JSON.stringify({ mode: config.mode }), createdAt: new Date() }).onConflictDoNothing().returning();
+  if (!claim.length) error(409, 'Une configuration est déjà en cours ou interrompue. Les données existantes sont conservées.');
+  invalidateDomainCache();
+  let actorId: string | undefined;
+  try {
+    actorId = (await createGenesisSuperadmin(value)).id;
+    const mailboxId = crypto.randomUUID();
+    await db.batch([
+      db.insert(schema.member).values({ id: crypto.randomUUID(), organizationId: orgId, userId: actorId, role: 'owner', createdAt: new Date() }),
+      db.insert(mail.mailbox).values({ id: mailboxId, orgId, localPart: value.mailboxLocalPart, address: `${value.mailboxLocalPart}@${config.domain}`, displayName: value.name, isPersonal: true, searchIndexed: false }),
+      db.insert(mail.mailboxAccess).values({ userId: actorId, mailboxId, canManage: true, canSend: true }),
+    ]);
+    return { id: actorId, mailboxId };
+  } catch (cause) {
+    // A failed account/password or batch must leave genesis retryable. If cleanup
+    // itself fails, stop and retain the reservation rather than create duplicates.
+    if (actorId) {
+      const { ctx } = await reqCtx();
+      await ctx.internalAdapter.deleteUser(actorId);
+    }
+    if (await db.$count(schema.user)) throw cause;
+    await db.delete(schema.organization).where(eq(schema.organization.id, orgId));
+    invalidateDomainCache();
+    throw cause;
+  }
 }
 
 // ---------------------------------------------------------------------------

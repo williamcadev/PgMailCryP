@@ -3,13 +3,15 @@ import { redirect } from "@sveltejs/kit";
 import { onboardingHome } from "$lib/server/onboarding.js";
 import { user as userTable } from "@doota/db/schema";
 import { SETUP_TOKEN } from "$app/env/private";
+import { bundledInstallation, transportHealth } from '$lib/server/installation';
 
 /**
  * Renders the genesis wizard only when the user count is zero and the one-time
  * SETUP_TOKEN is presented (?token=). Locks itself out permanently once a user
  * exists. When SETUP_TOKEN is unset, the wizard is disabled; use the CLI.
  */
-export const load = async ({ locals, url }) => {
+export const load = async ({ locals, url, platform, setHeaders }) => {
+  setHeaders({ 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' });
   if (locals.user) {
     redirect(302, locals.onboarding ? "/onboarding" : onboardingHome(locals.user.role));
   }
@@ -31,5 +33,6 @@ export const load = async ({ locals, url }) => {
     return { locked: true as const, reason: "bad-token" as const };
   }
 
-  return { locked: false as const, token };
+  const installation = bundledInstallation(platform?.env);
+  return { locked: false as const, token, installation, transport: installation ? await transportHealth(platform?.env) : null };
 };

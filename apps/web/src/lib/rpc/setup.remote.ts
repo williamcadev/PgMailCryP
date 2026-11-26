@@ -3,7 +3,8 @@ import { form, getRequestEvent } from '$app/server';
 import { getDiceBearURL } from '$lib/utils/dice-bear.js';
 import { tryCatch } from '$lib/utils/try-catch.js';
 import { setupSchema } from '$lib/shared/model/auth.zod.schema.js';
-import { createGenesisSuperadmin } from '$lib/server/auth/escape-hatches.js';
+import { createGenesisSuperadmin, createBundledGenesis } from '$lib/server/auth/escape-hatches.js';
+import { bundledInstallation } from '$lib/server/installation';
 import { isServedDomain } from '@doota/db/org-domains';
 import { getDb } from '@doota/db';
 import { user } from '@doota/db/schema';
@@ -20,9 +21,13 @@ import { SETUP_TOKEN } from '$app/env/private';
  */
 export const setupRemoteFunction = form(
 	setupSchema,
-	async ({ name, email, password, setupToken }) => {
+	async ({ name, email, password, setupToken, mailboxLocalPart }) => {
 		if (!SETUP_TOKEN || setupToken !== SETUP_TOKEN) {
 			return { success: false, message: 'Invalid or missing setup token.' };
+		}
+		if (bundledInstallation(getRequestEvent().platform?.env)) {
+			await createBundledGenesis({ name, email, password, setupToken, mailboxLocalPart });
+			return { success: true, message: 'Administrateur et boîte créés. Connecte-toi, puis active la double authentification et une passkey.' };
 		}
 
 		const db = getDb(getRequestEvent().platform?.env.DB!);

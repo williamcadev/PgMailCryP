@@ -11,6 +11,8 @@ declare global {
   // Instance secrets (Worker secrets, not in wrangler.jsonc so `wrangler types`
   // can't see them): the content DEK and the blind-search HMAC key. Never in D1.
   interface Env {
+    PGMAILCRYP_INSTALL_MODE?: "isolated-local-test";
+    PGMAILCRYP_DOMAIN?: string;
     STALWART_INGRESS_TOKEN?: string;
     PGP_SMTP_RELAY_URL?: string;
     PGP_SMTP_RELAY_TOKEN?: string;

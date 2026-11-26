@@ -24,6 +24,10 @@ test('isolated installs require their own domain and retain stable private secre
     const other = await renderLocalInstall({ output: join(output, 'second-instance'), domain: 'example.net' });
     assert.notEqual(other.project, metadata.project, 'separate state directories must not share Docker volumes');
     assert.ok((await readFile(join(output, 'bridge.env'), 'utf8')).includes('BRIDGE_RECIPIENT_DOMAINS=example.net'));
+    const workerVars = await readFile(join(output, '.dev.vars'), 'utf8');
+    assert.ok(workerVars.includes('PGMAILCRYP_DOMAIN="example.net"'));
+    assert.ok(workerVars.includes('PGMAILCRYP_INSTALL_MODE="isolated-local-test"'));
+    assert.ok(!workerVars.includes('SMTP_RELAY_PASSWORD='));
     for (const worker of ['web', 'inbound', 'jobs']) {
       const config = JSON.parse(await readFile(join(output, `${worker}.json`), 'utf8'));
       assert.ok(!JSON.stringify(config).includes('"remote":true'));

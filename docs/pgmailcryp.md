@@ -156,7 +156,7 @@ passe peut rendre les messages définitivement illisibles.
 
 - `pnpm check` : aucune erreur ; un avertissement Svelte préexistant dans le
   composant d’administration `remote-content-card.svelte`, non modifié.
-- `pnpm test` : 642 tests, 72 fichiers, tous réussis.
+- `pnpm test` : 653 tests, 74 fichiers, tous réussis.
 - Tests de configuration locale : 2 tests réussis, dont réapplication des
   identités Stalwart sans modification de champs immuables.
 - Construction Linux/Docker et migrations locales réussies ; secrets, comptes
@@ -169,3 +169,54 @@ passe peut rendre les messages définitivement illisibles.
 
 Ces résultats concernent l’environnement isolé décrit ici. Ils ne constituent
 pas un audit, une validation SMTP Internet ou une certification zero-access.
+
+
+## Premier démarrage de l’installation groupée
+
+L’installateur configure le transport avec le domaine fourni et écrit un lien
+privé `setup-url.txt`. Les Workers reçoivent explicitement
+`PGMAILCRYP_INSTALL_MODE=isolated-local-test` et `PGMAILCRYP_DOMAIN`. Hors de ce
+mode, le parcours Doota existant conserve son comportement.
+
+Sur une base vide, `/setup` valide le jeton et crée le premier administrateur,
+son organisation, son appartenance comme propriétaire, sa boîte personnelle et
+son droit d’envoi. La première organisation réserve le démarrage pour empêcher
+deux créations concurrentes. Les écritures de compte restent dans la frontière
+d’authentification ; un échec ordinaire nettoie les données créées et permet une
+nouvelle tentative. Une réservation laissée par une interruption brutale arrête
+la reprise automatique et exige une récupération opérateur.
+
+Le domaine est routable **localement** : l’état `active` ne signifie pas que son
+DNS public est vérifié. Le nom de domaine n’est pas fourni par le formulaire,
+qui ne peut donc pas modifier le transport préconfiguré. L’adresse de connexion
+administrateur doit être extérieure au domaine installé et à ses sous-domaines.
+Le parcours impose ensuite TOTP et une passkey, sans contourner les contrôles
+existants. L’import historique en clair n’est pas proposé pendant ce démarrage.
+
+Après cette protection, `/admin/installation` affiche le routage local, l’état du
+pont et de l’authentification SMTP Stalwart, puis les boîtes personnelles
+explicitement autorisées. Les droits et facteurs sont relus dans D1. La sonde
+`GET /health` du pont exige son bearer serveur et vérifie SMTP sans envoyer de
+message. Ses réponses sont des codes fixes, sans détail SMTP ni secret. La page
+ne reçoit ni les identifiants Stalwart, ni le token du pont, ni `MAIL_DEK`.
+Les réponses de configuration sont `no-store`, le premier démarrage applique
+`Referrer-Policy: no-referrer`, et l’écran ne demande aucune clé privée OpenPGP.
+
+Les comptes de démonstration existants sont conservés et ne sont pas élevés en
+administrateurs. Le premier démarrage reste verrouillé dès qu’un compte existe.
+Ce jalon simplifie l’installation de test ; le runtime Wrangler local, la
+restauration, les mises à jour de production et la reprise automatique d’un
+bootstrap interrompu restent des travaux distincts.
+
+Validation du premier démarrage : formulaire réel Firefox sur une instance vide,
+authentification SMTP Stalwart réussie, création du compte et de sa boîte,
+connexion par mot de passe, accès administrateur bloqué jusqu’aux facteurs
+requis, premier démarrage verrouillé après création et aucune page de setup ni
+jeton dans CacheStorage. L’enrôlement matériel de passkey n’est pas automatisé
+par ce test. Une erreur de chargement du favicon via le service worker existant
+a été observée lors du premier essai ; le test distingue précisément cette
+erreur de ressource des erreurs de l’application. Le second essai a réussi.
+Après mise à jour de l’instance de test déjà peuplée, le parcours Firefox complet
+(envoi, réception Stalwart, signatures, octets de pièce jointe, réponse et
+transfert) a également réussi avec les clés déjà publiées et les comptes
+conservés.

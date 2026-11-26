@@ -94,11 +94,19 @@ async function readPayload(req: IncomingMessage) {
 }
 
 /** Authenticated HTTP → SMTP transport. Receipts survive service restarts. */
-export function createEgressServer(config: BridgeConfig, db: DatabaseSync, transport: Pick<Transporter<SMTPTransport.SentMessageInfo>, 'sendMail'>) {
+export function createEgressServer(config: BridgeConfig, db: DatabaseSync, transport: Pick<Transporter<SMTPTransport.SentMessageInfo>, 'sendMail'> & { verify?: () => Promise<unknown> }) {
   return createServer((req, res) => {
     void (async () => {
-      if (req.url !== '/send') return reply(res, 404, 'NOT_FOUND');
+      if (!['/send', '/health'].includes(req.url ?? '')) return reply(res, 404, 'NOT_FOUND');
       if (!matches(req.headers.authorization ?? '', `Bearer ${config.httpToken}`)) return reply(res, 401, 'UNAUTHORIZED');
+      if (req.url === '/health') {
+        if (req.method !== 'GET') return reply(res, 405, 'GET_REQUIRED');
+        try {
+          if (!transport.verify) return reply(res, 503, 'SMTP_UNAVAILABLE');
+          await transport.verify();
+          return reply(res, 200, 'READY');
+        } catch { return reply(res, 503, 'SMTP_UNAVAILABLE'); }
+      }
       if (req.method !== 'POST') return reply(res, 405, 'POST_REQUIRED');
       let input: Record<string, unknown>, from: string, to: string, raw: Buffer, id: string;
       try {

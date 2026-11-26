@@ -21,7 +21,8 @@ export const registerSchema = z.object({
 // The /setup wizard carries the one-time SETUP_TOKEN so the server can gate
 // genesis on deploy access (token) in addition to userCount === 0.
 export const setupSchema = registerSchema.extend({
-	setupToken: z.string().min(1, 'Setup token is required')
+	setupToken: z.string().min(1, 'Setup token is required'),
+	mailboxLocalPart: z.string().regex(/^(?!.*\.\.)[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9])?$/, 'Adresse locale invalide').optional()
 });
 
 export const recoveryEmailSchema = z.object({

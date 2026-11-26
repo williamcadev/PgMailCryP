@@ -14,16 +14,35 @@ version et digest. La construction peut demander plus de mémoire que l’exécu
 À partir de la branche contenant cet installateur :
 
 ```sh
-node infra/local/install.mjs --domain VOTRE_DOMAINE --state "$HOME/.pgmailcryp-test" --test-accounts
+node infra/local/install.mjs --domain VOTRE_DOMAINE --state "$HOME/.pgmailcryp-test"
 ```
 
-`--test-accounts` est facultatif : il crée Alice et Bob, deux utilisateurs simples
-et leurs boîtes personnelles, uniquement dans une installation vide. Leurs mots
-de passe aléatoires sont dans `test-accounts.json` (0600). Aucune clé OpenPGP n’est
-créée sur le serveur. Les comptes de test n’ont aucun droit d’administration.
-Sans cette option, le parcours Doota `/setup?token=...` reste disponible pour une
-installation vide, avec le `SETUP_TOKEN` du fichier privé `secrets.json` ; son
-onboarding de domaine hérité dépend encore de Cloudflare.
+L’installateur écrit un lien de premier démarrage dans `setup-url.txt` (0600).
+Ouvrir ce lien via le tunnel SSH. Sur une installation vide, l’écran crée le
+premier administrateur, une organisation de routage **local** et sa boîte
+personnelle. Le domaine est celui fourni à l’installateur. Aucune vérification
+DNS publique ni aucun appel Cloudflare n’est effectué. L’adresse de connexion
+administrateur doit être extérieure au domaine et à ses sous-domaines.
+
+Après connexion, le parcours de sécurité existant exige TOTP **et** une passkey.
+Il conduit ensuite à `/admin/installation`, qui vérifie le pont authentifié et
+l’authentification SMTP de Stalwart, puis propose de configurer la clé de la boîte
+sur l’appareil. La sonde n’envoie aucun courriel et n’expose aucun secret SMTP.
+
+`--test-accounts` crée facultativement Alice et Bob dans une installation vide,
+pour le scénario automatisé. Leurs mots de passe aléatoires sont dans
+`test-accounts.json` (0600). Aucun administrateur ni aucune clé OpenPGP n’est
+créé par cette option. Des comptes existants verrouillent toujours le premier
+démarrage : ils ne sont jamais remplacés ou élevés automatiquement. Le parcours
+Doota initial reste disponible sur les installations non groupées.
+
+Un échec ordinaire de création annule le compte et la réservation du domaine
+pour permettre une nouvelle tentative. Une interruption brutale au milieu du
+premier démarrage peut laisser une réservation ou un compte partiel ; le
+parcours s’arrête alors et conserve les données. Inspecter et récupérer cette
+instance via les outils d’administration locaux avant de réessayer, sans
+supprimer aveuglément les utilisateurs ni relancer un seed. Il n’y a pas encore
+de réparation automatique de ce cas.
 
 Le dossier d’état est privé et doit être sauvegardé avec les volumes Docker. Ne
 pas le publier, ni afficher ses secrets dans un ticket. Un second lancement
@@ -90,3 +109,20 @@ Les clés et la phrase de passe synthétiques du test ne servent pas en producti
 Il vérifie les brouillons, le transport SMTP, la signature, les octets de pièce
 jointe, la réponse et le transfert ; il surveille aussi les corps des appels
 `fetch` pour détecter la fuite de ses marqueurs et de sa phrase de passe de test.
+
+Le premier démarrage dispose d’un test distinct, uniquement contre une instance
+jetable **vide**, sans `--test-accounts` :
+
+```sh
+INSTALL_TEST_SECRETS=/chemin/prive/installation-test.json \
+PGP_TEST_BROWSER=/chemin/vers/firefox \
+node apps/web/e2e/installation.mjs
+```
+
+Le fichier JSON privé fournit `url` (localhost via tunnel), `domain`, `token`
+(SETUP_TOKEN), `email` (administrateur externe synthétique) et `password`.
+Le test crée réellement cet administrateur et sa boîte `owner@domain` : il ne
+supprime ni ne réinitialise les données après exécution. Il vérifie le blocage
+MFA et le verrouillage du setup, sans enrôler une passkey matérielle. Les secrets
+restent hors de Git. Une erreur de ressource limitée au favicon du service
+worker préexistant est distinguée des erreurs de l’application.

@@ -26,7 +26,7 @@ export async function renderLocalInstall({ domain, output, port = 18787 }) {
   const project = previous?.project ?? `pgmailcryp-${createHash('sha256').update(`${domain}\0${directory}\0${port}`).digest('hex').slice(0, 10)}`;
   const origin = `http://localhost:${port}`;
   const { BRIDGE_SMTP_PASSWORD: _bridgePassword, SMTP_RELAY_PASSWORD: _relayPassword, ...workerSecrets } = secrets;
-  const vars = { ...workerSecrets, ORIGINS: origin, PGP_SMTP_RELAY_URL: 'http://127.0.0.1:8788/send', PGP_LOCAL_DELIVERY: 'smtp', LOG_LEVEL: 'warn' };
+  const vars = { ...workerSecrets, PGMAILCRYP_INSTALL_MODE: 'isolated-local-test', PGMAILCRYP_DOMAIN: domain, ORIGINS: origin, PGP_SMTP_RELAY_URL: 'http://127.0.0.1:8788/send', PGP_LOCAL_DELIVERY: 'smtp', LOG_LEVEL: 'warn' };
   await privateFile('.dev.vars', Object.entries(vars).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n') + '\n');
   const base = {
     compatibility_date: '2026-04-28', compatibility_flags: ['nodejs_als', 'nodejs_compat'],

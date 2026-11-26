@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { spawn } from 'node:child_process';
-import { access, readFile, writeFile, unlink } from 'node:fs/promises';
+import { access, readFile, writeFile, unlink, chmod } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -57,4 +57,7 @@ await unlink(join(state, 'bootstrap-compose.json')).catch(() => {});
 await ready(async () => (await fetch(`${installation.origin}/login`, { signal: AbortSignal.timeout(5000) })).ok, 'PgMailCryP');
 if (flags.includes('--test-accounts')) await docker(['exec', '-T', 'app', 'node', 'infra/local/seed-test.mjs']);
 console.log(`Local services ready at ${installation.origin}. Private setup token: ${state}/secrets.json (SETUP_TOKEN).`);
-console.log('Open /setup?token=YOUR_SETUP_TOKEN. This test install accepts mail only for its configured domain.');
+const setupToken = JSON.parse(await readFile(join(state, 'secrets.json'), 'utf8')).SETUP_TOKEN;
+await writeFile(join(state, 'setup-url.txt'), `${installation.origin}/setup?token=${encodeURIComponent(setupToken)}\n`, { mode: 0o600 });
+await chmod(join(state, 'setup-url.txt'), 0o600);
+console.log(`Open the private link in ${state}/setup-url.txt to configure the administrator and first mailbox. Existing installations retain their accounts.`);

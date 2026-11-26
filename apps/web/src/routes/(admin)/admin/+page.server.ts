@@ -1,10 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 import { and, eq, inArray, sql } from "drizzle-orm";
 import * as schema from "@doota/db/schema";
+import { redirect } from '@sveltejs/kit';
+import { bundledInstallation } from '$lib/server/installation';
 
 // Super-admin "view all orgs" is an aggregate over the orgs they own, resolved
 // through membership (owner/admin role), not a non-member override.
-export const load = async ({ locals }) => {
+export const load = async ({ locals, platform }) => {
+  if (locals.user?.role === 'superadmin' && bundledInstallation(platform?.env)) redirect(302, '/admin/installation');
   const user = locals.user!;
   const orgs = await locals.db
     .select({

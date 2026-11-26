@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 import { redirect } from "@sveltejs/kit";
 import { onboardingHome } from "$lib/server/onboarding.js";
+import { bundledInstallation } from '$lib/server/installation';
 
-export const load = async ({ locals }) => {
+export const load = async ({ locals, platform }) => {
   const user = locals.user;
   if (!user) redirect(302, "/login");
   // hooks set locals.onboarding only while steps remain. Absent means finished,
@@ -11,5 +12,6 @@ export const load = async ({ locals }) => {
   return {
     user: { name: user.name, email: user.email, role: user.role ?? "member" },
     onboarding: locals.onboarding,
+    bundledInstallation: !!bundledInstallation(platform?.env),
   };
 };

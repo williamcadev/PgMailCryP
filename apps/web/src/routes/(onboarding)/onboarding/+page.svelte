@@ -11,7 +11,7 @@
 
     let { data } = $props();
 
-    const steps = $derived(data.onboarding.steps);
+    const steps = $derived(data.onboarding.steps.map((step) => data.bundledInstallation && step.id === 'onboard-domain' ? { ...step, title: 'Configurer le routage local' } : step));
     const doneCount = $derived(steps.filter((step) => step.done).length);
     // Later steps stay locked until the email/recovery step is verified. The
     // super-admin has no such step (email-free genesis), nothing to gate on, so
@@ -25,11 +25,11 @@
 <div class="flex flex-col gap-6">
     <div class="flex flex-col gap-2">
         <h1 class="font-heading text-2xl font-semibold tracking-tight">
-            Finish setting up
+            {data.bundledInstallation ? 'Protéger ton compte PgMailCryP' : 'Finish setting up'}
         </h1>
         <p class="text-muted-foreground text-sm">
-            A few steps before you can access Doota. {doneCount} of {steps.length}
-            done.
+            {#if data.bundledInstallation}Active la double authentification et une passkey pour continuer. Tu créeras ensuite ta clé OpenPGP sur ton appareil.
+            {:else}A few steps before you can access Doota. {doneCount} of {steps.length} done.{/if}
         </p>
         <div
             class="bg-muted mt-1 h-1.5 w-full overflow-hidden rounded-full"
@@ -129,7 +129,7 @@
          An import runs for hours; making it a step would either block people who
          skip it or make the gate a lie. So it sits below, offered and skippable,
          and `status.complete` never depends on it. -->
-    <section class="mt-2 flex flex-col gap-2 border-t pt-6">
+    {#if !data.bundledInstallation}<section class="mt-2 flex flex-col gap-2 border-t pt-6">
         <div class="flex items-baseline justify-between gap-2">
             <h2 class="font-heading text-sm font-semibold">Bring your mail with you</h2>
             <span class="text-muted-foreground text-xs">Optional — you can skip this</span>
@@ -140,5 +140,5 @@
             so it won't bury anything. You can also do this later from Settings → Mail.
         </p>
         <ImportCard />
-    </section>
+    </section>{/if}
 </div>
