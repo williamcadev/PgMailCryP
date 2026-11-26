@@ -20,3 +20,23 @@ packages:
 catalog:
   '@cloudflare/workers-types': 4.20260615.1
   '@types/node': 22.20.1
+
+# pnpm 11 moved package-script approvals into allowBuilds. Keep native/runtime
+# builds used by dev and production explicitly approved, and leave optional
+# memory-profiling tooling blocked unless a developer needs it.
+allowBuilds:
+  '@memlab/cli': false
+  '@prisma/client': true
+  better-sqlite3: true
+  esbuild: true
+  memlab: false
+  puppeteer: false
+  sharp: true
+  sleep: false
+  workerd: true
+  '@tailwindcss/oxide': true
+  '@better-auth/root': true
+
+overrides:
+  '@cloudflare/workers-types': 4.20260615.1
+  '@types/node': 22.20.1
