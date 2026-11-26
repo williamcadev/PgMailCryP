@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { and, desc, eq, gt, inArray, isNotNull, lt } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
+import { assertLegacyMailAllowed } from "./pgp-policy";
 import { error } from "@sveltejs/kit";
 import * as schema from "@doota/db/schema";
 import * as mail from "@doota/db/mail.schema";
@@ -185,6 +186,7 @@ export async function createDraft(
   userId: string,
   input: DraftInput,
 ): Promise<DraftDTO> {
+  await assertLegacyMailAllowed(db, input.mailboxId);
   const sender = await resolveSender(db, userId, input.mailboxId, input.fromAliasId ?? null);
   const [subjectEnc, bodyEnc] = await Promise.all([
     encryptContent(ck, input.subject ?? null),
@@ -239,6 +241,7 @@ export async function saveDraft(
   },
 ): Promise<SaveResult> {
   const row = await ownDraftRow(db, input.draftId, userId);
+  await assertLegacyMailAllowed(db, row.mailboxId);
   if (row.status !== "editing") error(409, "This draft has already been sent.");
 
   // Re-validate a changed sending identity through the send capability check.
@@ -546,6 +549,7 @@ export async function stageDraftAttachment(
   file: { name: string; type: string; size: number; bytes: ArrayBuffer },
 ): Promise<AttachmentRef[]> {
   const row = await ownDraftRow(db, draftId, userId);
+  await assertLegacyMailAllowed(db, row.mailboxId);
   if (row.status !== "editing") error(409, "This draft has already been sent.");
   const current = jsonArray<AttachmentRef>(row.attachments);
   if (current.length >= MAX_ATTACHMENTS) error(413, "Too many attachments.");
@@ -715,6 +719,7 @@ export async function sendDraft(
   cache: CacheLike | null = null,
 ): Promise<{ submissionId: string; threadId: string }> {
   const row = await ownDraftRow(db, input.draftId, userId);
+  await assertLegacyMailAllowed(db, row.mailboxId);
   if (row.status !== "editing") error(409, "This draft has already been sent.");
 
   // Claim the draft (editing → sending) with a compare-and-set before building

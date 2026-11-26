@@ -20,6 +20,7 @@
 	import { Spinner } from '$lib/components/ui/spinner/index.js';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
+	import PgpComposeNotice from '$lib/components/mail/pgp-compose-notice.svelte';
 	import FromSelector from '$lib/components/mail/from-selector.svelte';
 	import RecipientInput from '$lib/components/mail/recipient-input.svelte';
 	import TiptapEditor from '$lib/components/mail/tiptap-editor.svelte';
@@ -184,6 +185,10 @@
 		</Button>
 	</div>
 
+	{#if session.requiresPgp}
+		<div class="p-3"><FromSelector identities={session.identities} bind:mailboxId={session.mailboxId} bind:aliasId={session.aliasId} /></div>
+		<PgpComposeNotice mailboxId={session.mailboxId} />
+	{:else}
 	<!-- The form: plain document flow. The page scrolls; the keyboard covers the
 	     bottom like on any web form, and iOS reveals the caret natively. -->
 	<div class="flex flex-col gap-2 px-3 pt-3 pb-[max(env(safe-area-inset-bottom),1rem)]">
@@ -290,6 +295,7 @@
 			</div>
 		{/if}
 	</div>
+	{/if}
 </div>
 
 <input bind:this={fileInput} type="file" multiple class="hidden" onchange={onFiles} />

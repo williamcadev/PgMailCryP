@@ -142,6 +142,44 @@ export const pgpInboxMessage = sqliteTable("pgp_inbox_message", {
   index("pgp_inbox_mailbox_received_idx").on(t.mailboxId, t.receivedAt),
 ]);
 
+/** Client-encrypted drafts: even recipient lists and attachment names stay inside armor. */
+export const pgpDraft = sqliteTable("pgp_draft", {
+  id: id(),
+  mailboxId: text("mailbox_id").notNull().references(() => mailbox.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  r2Key: text("r2_key").notNull(),
+  revision: integer("revision").notNull().default(1),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (t) => [index("pgp_draft_owner_idx").on(t.userId, t.mailboxId)]);
+
+/** The wire MIME contains only public routing headers and encrypted content. */
+export const pgpOutboxMessage = sqliteTable("pgp_outbox_message", {
+  id: id(),
+  mailboxId: text("mailbox_id").notNull().references(() => mailbox.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  fromAddress: text("from_address").notNull(),
+  r2Key: text("r2_key").notNull(),
+  requestHash: text("request_hash").notNull(),
+  envelopeRecipients: text("envelope_recipients").notNull(),
+  prepared: integer("prepared", { mode: "boolean" }).notNull().default(false),
+  createdAt: now(),
+}, (t) => [index("pgp_outbox_mailbox_created_idx").on(t.mailboxId, t.createdAt)]);
+
+/** One durable delivery state per SMTP recipient; never a readable message index. */
+export const pgpOutboxRecipient = sqliteTable("pgp_outbox_recipient", {
+  submissionId: text("submission_id").notNull().references(() => pgpOutboxMessage.id, { onDelete: "cascade" }),
+  generation: integer("generation").notNull().default(0),
+  address: text("address").notNull(),
+  status: text("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  lastAttemptAt: integer("last_attempt_at", { mode: "timestamp_ms" }),
+  nextAttemptAt: integer("next_attempt_at", { mode: "timestamp_ms" }),
+  errorCode: text("error_code"),
+}, (t) => [
+  uniqueIndex("pgp_outbox_recipient_uidx").on(t.submissionId, t.address),
+  index("pgp_outbox_retry_idx").on(t.status, t.nextAttemptAt),
+]);
+
 /**
  * Shared-mailbox grant. Capability flags are resolved through the existing
  * can() (never a parallel permission path). Shaped so a nullable team scope is

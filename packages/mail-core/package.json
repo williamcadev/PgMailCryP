@@ -55,7 +55,10 @@
     "./vacation": "./src/vacation.ts",
     "./web-push": "./src/web-push.ts",
     "./pgp": "./src/pgp.ts",
-    "./ingress": "./src/ingress.ts"
+    "./ingress": "./src/ingress.ts",
+    "./pgp-wire": "./src/pgp-wire.ts",
+    "./pgp-outbound": "./src/pgp-outbound.ts",
+    "./pgp-policy": "./src/pgp-policy.ts"
   },
   "dependencies": {
     "@doota/db": "workspace:*",

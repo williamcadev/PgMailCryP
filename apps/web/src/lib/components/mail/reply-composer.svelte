@@ -4,6 +4,7 @@
 	import { slide } from 'svelte/transition';
 	import { useDebounce } from 'runed';
 	import { Button } from '$lib/components/ui/button/index.js';
+	import PgpComposeNotice from './pgp-compose-notice.svelte';
 	import FromSelector from './from-selector.svelte';
 	import RecipientInput from './recipient-input.svelte';
 	import TiptapEditor from './tiptap-editor.svelte';
@@ -123,6 +124,7 @@
 	const UNDO_SECONDS = 10;
 
 	let sendMailboxId = $state('');
+	const requiresPgp = $derived(!identities.some((identity) => identity.mailboxId === (sendMailboxId || mailboxId) && !identity.isPersonal));
 	let aliasId = $state<string | null | undefined>(undefined);
 	let subjectText = $state('');
 	let body = $state('');
@@ -275,6 +277,7 @@
 		return draftPending;
 	}
 	async function createDraftRow(): Promise<string | null> {
+		if (requiresPgp) return null;
 		const sentBody = body;
 		const d = await startDraft({
 			mailboxId: sendMailboxId,
@@ -326,12 +329,14 @@
 	// reloading the body mid-type. Chaining makes each save see the bumped revision.
 	let saveChain: Promise<void> = Promise.resolve();
 	function flushSave(): Promise<void> {
+		if (requiresPgp) return Promise.resolve();
 		scheduleSave.cancel();
 		saveChain = saveChain.then(doSave, doSave);
 		return saveChain;
 	}
 
 	async function doSave() {
+		if (requiresPgp) return;
 		// Cleared out → an empty reply is not a draft. Delete the row if one exists
 		// (Gmail/Superhuman/Fastmail all discard an emptied draft) so it can't linger
 		// in Drafts with stale text. Recipients are auto-filled, so they don't count.
@@ -385,7 +390,7 @@
 		if (draftId && !hasBody && attachments.length === 0) void discardDraftById({ draftId });
 	});
 
-	const canSend = $derived((hasBody || attachments.length > 0) && hasRecipient);
+	const canSend = $derived(!requiresPgp && (hasBody || attachments.length > 0) && hasRecipient);
 
 	async function send() {
 		if (!canSend || sending) return;
@@ -445,6 +450,8 @@
 
 </script>
 
+
+
 <!-- Tab going hidden is the last reliable moment to reach the network, so flush
      immediately instead of waiting out the debounce (best-effort; the local
      mirror covers whatever doesn't make it). -->
@@ -459,6 +466,9 @@
      keyboard shrinks the pane, this lets it compress and scroll its content
      instead of overflowing the pane (iOS chases overflow with document scroll,
      sliding the whole frame under the top bar). -->
+{#if requiresPgp}
+  <PgpComposeNotice mailboxId={sendMailboxId || mailboxId} />
+{:else}
 <div
 	class="bg-card flex min-h-0 flex-col border-t shadow-[0_-6px_20px_-12px_oklch(0.2_0.02_285/0.15)] transition-[padding] duration-200 motion-reduce:transition-none {collapsed
 		? 'px-2 pt-2 pb-[calc(0.5rem+env(safe-area-inset-bottom))]'
@@ -616,7 +626,7 @@
 						body = html;
 						// Don't mirror an empty editor ("<p></p>"); clear any prior husk so
 						// emptying a reply doesn't leave a phantom to "restore" next open.
-						if (htmlHasContent(html)) mirrorDraft(mirrorKey, { body: html });
+						if (!requiresPgp && htmlHasContent(html)) mirrorDraft(mirrorKey, { body: html });
 						else clearMirror(mirrorKey);
 						scheduleSave();
 					}}
@@ -666,3 +676,5 @@
 	</div>
 	</div>
 </div>
+
+{/if}

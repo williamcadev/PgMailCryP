@@ -1,0 +1,14 @@
+.git
+.DS_Store
+**/.DS_Store
+**/._*
+**/node_modules
+**/.svelte-kit
+**/.wrangler
+**/.dev.vars*
+**/.env
+**/.env.*
+!**/.env.example
+.pgmailcryp-local
+apps/web/static/file-viewer
+apps/web/static/file-viewer-runtime.iife.js

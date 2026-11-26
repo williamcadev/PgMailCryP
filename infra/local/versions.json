@@ -1,0 +1,5 @@
+{
+  "stalwart": "stalwartlabs/stalwart:v1.2.1@sha256:ed3153af935f0125ed0424b2a6d7d5891915a9249189dda76860a27f906b64ea",
+  "node": "node:24-bookworm-slim@sha256:873f586f3794f52281bd039bf02c048a0be08fde619338f9941bad1eb6b34530",
+  "pnpm": "11.29.0"
+}

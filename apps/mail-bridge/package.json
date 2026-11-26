@@ -1,0 +1,21 @@
+{
+  "name": "@pgmailcryp/mail-bridge",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.ts",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@doota/mail-core": "workspace:*",
+    "nodemailer": "10.6.1",
+    "smtp-server": "3.21.7"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@types/nodemailer": "8.0.2",
+    "@types/smtp-server": "3.5.13",
+    "typescript": "^5.9.3"
+  }
+}

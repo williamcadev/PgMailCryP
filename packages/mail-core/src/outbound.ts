@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
+import { assertLegacyMailAllowed } from "./pgp-policy";
 import { and, eq, lte, sql } from "drizzle-orm";
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "@doota/db/schema";
@@ -26,7 +27,7 @@ type Db = DrizzleD1Database<typeof schema>;
  * queued/clock state; the consumer only fans out to recipients.
  */
 
-export type OutboundJob = { submissionId: string };
+export type OutboundJob = { submissionId: string; kind?: "pgp" };
 
 export type OutboundEnv = {
   MAIL_DEK: string;
@@ -108,6 +109,7 @@ export async function enqueueSend(
   env: OutboundEnv,
   req: SendRequest,
 ): Promise<EnqueueResult> {
+  await assertLegacyMailAllowed(db, req.mailboxId);
   req = signatureStage(req);
   // Double-send guard: a repeated idempotency_key returns the existing send
   // rather than creating a second one (also enforced by the unique index).

@@ -132,8 +132,12 @@ export class ComposeSession {
 
 	// ---- derived-ish reads (methods — $derived can't live on class fields that
 	// close over `this` cleanly across surfaces, and these are cheap) ----------
+	get requiresPgp(): boolean {
+		// Deny while identities are loading; only known shared identities use the legacy editor.
+		return !this.identities.some((identity) => identity.mailboxId === this.mailboxId && !identity.isPersonal);
+	}
 	get canSend(): boolean {
-		return this.phase === 'editing' && !!this.mailboxId && this.to.length + this.cc.length + this.bcc.length > 0;
+		return !this.requiresPgp && this.phase === 'editing' && !!this.mailboxId && this.to.length + this.cc.length + this.bcc.length > 0;
 	}
 	/** Why the primary action is blocked — the button's title so a disabled Send
 	 *  explains itself instead of just greying out. */
@@ -246,6 +250,7 @@ export class ComposeSession {
 	/** A surviving mirror is text the server never acked (tab died / offline
 	 *  before the debounce flushed). Pull it back over whatever loaded. */
 	private restoreMirror(): void {
+		if (this.requiresPgp) return;
 		const local = readMirror(this.mirrorKey);
 		if (!local) return;
 		const text = (local.body ?? '').replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim();
@@ -270,7 +275,7 @@ export class ComposeSession {
 	private debouncedSave = useDebounce(() => this.flushSave(), 800);
 
 	scheduleSave = (): void => {
-		if (this.phase !== 'editing') return;
+		if (this.phase !== 'editing' || this.requiresPgp) return;
 		this.saved = false;
 		mirrorDraft(this.mirrorKey, {
 			body: this.body,
@@ -292,6 +297,7 @@ export class ComposeSession {
 		return this.draftPending;
 	}
 	private async createDraftRow(): Promise<string | null> {
+		if (this.requiresPgp) return null;
 		if (!this.mailboxId) return null;
 		const sent = this.snapshot();
 		const d = await startDraft({
@@ -332,6 +338,7 @@ export class ComposeSession {
 	};
 
 	private async doSave(): Promise<void> {
+		if (this.requiresPgp) return;
 		if (!this.mailboxId) return;
 		if (!this.draftId) {
 			if (!this.hasContent) return;
@@ -375,6 +382,7 @@ export class ComposeSession {
 
 	// ---- attachments -----------------------------------------------------------
 	uploadFiles = async (files: File[]): Promise<void> => {
+		if (this.requiresPgp) return;
 		if (!files.length) return;
 		const id = await this.ensureDraft();
 		if (!id) return;

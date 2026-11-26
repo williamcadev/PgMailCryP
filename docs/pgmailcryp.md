@@ -1,166 +1,171 @@
-# PgMailCryP : pilote de réception OpenPGP
+# PgMailCryP : parcours OpenPGP expérimental
 
-Ce jalon ajoute une réception indépendante pour les boîtes personnelles ayant
-publié une clé publique. Il **ne garantit pas le zero-access global de Doota**.
-Aucun déploiement, DNS ou service externe n'est configuré par ce changement.
+La branche `codex/pgmailcryp-receive-pilot` contient le parcours expérimental de
+composition, brouillons, envoi, réception et lecture. Ce n’est pas une release de
+production ni une garantie zero-access globale. Chaque installation fournit son
+propre domaine et le serveur de son choix.
 
-## Parcours disponible
+## Installation locale groupée
 
-1. Installer avec pnpm 11.29.0 (version dans `packageManager`). Le lockfile garde
-   les versions Doota antérieures au premier commit PgMailCryP, avec OpenPGP.js
-   6.3.3 et sa dépendance `eckey-utils` ajoutés. Les overrides et les autorisations de scripts `allowBuilds` sont dans
-   `pnpm-workspace.yaml`, avec des valeurs booléennes valides. Le correctif
-   pnpm 11 déjà publié sur GitHub est intégré ; `onlyBuiltDependencies` est
-   remplacé par ces autorisations.
-2. Appliquer localement les migrations avec `pnpm db:migrate:local`, dans un
-   environnement Doota configuré. Les migrations 0058 (clé publique) et 0059
-   (réception isolée) sont journalisées et ont leurs snapshots Drizzle.
-3. Ouvrir `/pgmailcryp` dans une session autorisée. Générer ou importer une clé,
-   exporter une sauvegarde de la clé privée chiffrée, choisir explicitement une
-   boîte personnelle, puis activer la réception avec sa clé publique.
-4. Après activation, une livraison Cloudflare Email Routing ou un POST du pont
-   Stalwart vers cette boîte (y compris via ses alias) chiffre les octets MIME
-   originaux avec la clé publique. Seuls le ciphertext R2 et sa référence D1 sont
-   écrits. Cette réception n'utilise pas `MAIL_DEK` ni la file Doota.
-5. Actualiser la réception dans l'atelier, déverrouiller la clé sur l'appareil,
-   puis ouvrir le message. Le navigateur télécharge le ciphertext, le déchiffre,
-   et parse le MIME avec postal-mime. Il affiche le texte, ou la source HTML
-   échappée pour un message HTML seul. Il permet de télécharger les pièces
-   jointes binaires et le MIME déchiffré. Aucun HTML de courriel n'est exécuté et
-   aucune image distante n'est chargée par ce lecteur.
+L’[installateur local](../infra/local/README.md) construit l’application et démarre
+ensemble Stalwart, le pont SMTP authentifié et le runtime Workers local. D1, R2,
+KV et les files sont simulés localement par Wrangler ; aucun compte Cloudflare
+n’est nécessaire pour cette installation isolée. Ce runtime de développement
+n’est pas une distribution serveur de production.
 
-La clé privée protégée par phrase de passe reste dans le localStorage du
-navigateur, sous la clé préexistante `pgmailcryp:encrypted-private-key`. La clé
-ouverte est conservée en mémoire dans l'onglet. Verrouiller efface les références
-au contenu déchiffré et à la clé ouverte, sans garantie d'effacement physique de
-la mémoire JavaScript. Une seule paire locale est gérée par cet atelier ; le
-stockage est lié au navigateur/origine, pas à un compte ni à une boîte.
+L’installation ne crée aucun DNS et ne publie aucun port sur Internet. L’envoi
+est limité au domaine configuré. Un accès par tunnel SSH à `localhost` permet de
+vérifier le parcours sur une autre machine. Les images et pnpm sont verrouillés.
+Les secrets sont propres à l’instance et conservés dans son répertoire privé.
 
-La publication et la lecture vérifient directement dans D1 un droit non restreint
-sur une boîte personnelle active et non service. Le cache d'autorisations n'est
-pas utilisé. Une clé privée, plusieurs certificats, une clé expirée, révoquée ou
-sans sous-clé de chiffrement utilisable sont refusés. Republier la même empreinte
-est idempotent ; remplacer la clé est bloqué, même sous concurrence. La désactivation de ce mode
-n’est pas encore proposée dans l’interface. Les
-certificats existants ne sont pas actualisés par republication : rotation,
-renouvellement et révocation nécessitent encore un parcours spécifique. Une clé
-qui expire après activation provoque un échec de réception réessayable, jamais
-un repli vers `MAIL_DEK`.
+## Utilisation avec deux comptes
 
-## Pourquoi un lecteur séparé
+1. Créer les comptes de test facultatifs Alice et Bob dans une instance vide,
+   puis ouvrir leurs sessions dans deux profils de navigateur séparés.
+2. Dans `/pgmailcryp`, choisir la boîte personnelle. Générer une clé avec une
+   phrase de passe d’au moins 12 caractères, exporter sa sauvegarde chiffrée,
+   puis publier sa clé publique. Faire cela pour les deux comptes.
+3. Échanger les clés publiques et **comparer les empreintes complètes par un
+   canal indépendant**. La recherche dans l’annuaire n’approuve jamais une clé.
+4. Déverrouiller la clé, composer et joindre un petit fichier. Les brouillons
+   sont chiffrés sur l’appareil avant IndexedDB ou transmission au serveur.
+5. Envoyer. Le navigateur signe et chiffre le MIME protégé pour tous les
+   destinataires et l’expéditeur. Le serveur reçoit uniquement ce ciphertext et
+   l’enveloppe de routage. Les clés de contacts manquantes bloquent l’envoi.
+6. Actualiser les envois. Dans l’installation groupée, le chemin passe par le
+   pont HTTP, la soumission SMTP à Stalwart, sa file durable, le pont SMTP
+   authentifié et `/ingress/stalwart` avant stockage.
+7. Dans le profil de Bob, actualiser la réception et lire sur l’appareil. Vérifier
+   la signature, l’objet, le texte et les octets de la pièce jointe. Répondre ou
+   transférer utilise le même compositeur chiffré. Alice peut lire sa copie envoyée.
 
-Le consumer historique charge le MIME chiffré avec `MAIL_DEK`, le déchiffre,
-parse le MIME, extrait les pièces jointes vers R2, puis matérialise messages,
-livraisons et fils. Il alimente aussi les règles, le spam, les invitations,
-contacts, notifications et l'index FTS lisible. Les lecteurs Doota utilisent ces
-lignes et ces objets dérivés. Remplacer leur MIME par un blob OpenPGP casserait
-ce contrat et ne protégerait pas les copies dérivées déjà créées.
+Le lecteur traite plusieurs couches PGP/MIME, des parties binaires/base64 et les
+signatures détachées. Une signature n’est attribuée à une identité que si elle
+correspond à la clé épinglée pour l’adresse de l’expéditeur. Il distingue
+`verified`, `invalid`, `unverified` et `unsigned`. L’enveloppe de chiffrement au
+stockage d’un courriel ordinaire ne devient pas une signature de l’expéditeur.
+Le HTML est affiché comme texte ; aucune image distante n’est chargée.
 
-Le parcours pilote utilise donc `pgp_inbox_message` et `pgp/…` dans R2, avec un
-contrat distinct de lecture MIME côté client. Il ne crée **aucune** ligne de
-message, pièce jointe, fil, livraison, calendrier, contact, notification ou FTS.
-Il n'offre pas encore fils, recherche, règles, antispam applicatif, notifications,
-réponse, transfert ou analyse antivirus. La liste montre les 50 dernières
-réceptions, sans pagination. Les messages et jobs déjà présents avant
-l'activation restent dans le pipeline historique : aucune migration rétroactive
-ni purge des anciennes données n'est réalisée.
+## Clés et autorisations
 
-## Données visibles et modèle de confiance
+La clé privée protégée est dans le localStorage **par utilisateur et boîte**. La
+clé ouverte et les données déchiffrées restent en mémoire dans l’onglet. Le
+bouton de verrouillage retire ces références de l’écran, sans garantie
+d’effacement physique de la mémoire JavaScript. L’ancienne clé de l’atelier peut
+être récupérée explicitement ; elle n’est pas supprimée automatiquement.
+
+Les accès aux clés, listes et objets vérifient directement D1 : boîte personnelle
+active, non service, droit non restreint. Écrire/publier/envoyer exige `canSend` et
+un domaine actif. Le consumer recontrôle les droits avant la livraison. Les
+boîtes partagées sont exclues. Remplacer une empreinte déjà publiée est bloqué,
+y compris sous concurrence ; rotation et récupération restent à concevoir.
+Les certificats privés, multiples, expirés, révoqués ou inutilisables sont refusés
+à la publication. Un certificat expirant après activation provoque un échec
+réessayable, sans repli en clair.
+
+## Stockage et métadonnées
 
 | Emplacement | Données visibles |
 | --- | --- |
-| SMTP, MTA/pont, ingress Worker | Enveloppe, en-têtes, sujet, corps, pièces jointes et résultats d'authentification ordinaires avant chiffrement ; journaux et spool du MTA selon sa configuration |
-| D1 de ce pilote | Identifiant de boîte, SHA-256 du MIME, empreinte publique, chemin R2, heure de première persistance |
-| R2 de ce pilote | MIME chiffré intégralement, clé d'objet incluant boîte/hash/empreinte, taille du ciphertext, dates d'écriture et identifiants OpenPGP publics du destinataire |
-| D1 existant | Comptes, domaines, adresses, alias, droits d'accès et certificat public, indépendamment des messages |
-| Navigateur | Clé privée protégée persistée ; clé ouverte, MIME, corps et pièces jointes déchiffrés en mémoire ; fichiers exportés explicitement |
+| D1, annuaire | Comptes, domaines, adresses, alias, droits, clés publiques et empreintes |
+| D1, réception | Boîte, hash du MIME reçu, empreinte, chemin R2, date |
+| D1, brouillons | Propriétaire, boîte, identifiant, révision, chemin R2, date |
+| D1, envois | Expéditeur, destinataires SMTP dont Cci, identifiants, hash, chemin R2, dates, états et tentatives par destinataire |
+| R2, brouillons | JSON chiffré contenant objet, corps, destinataires et pièces jointes |
+| R2, envois | MIME PGP chiffré avec objet externe fixe « Message OpenPGP » ; From/To/Cc externes, aucun en-tête Bcc |
+| R2, réception | Octets MIME originaux intégralement chiffrés avec la clé publique de la boîte |
+| Navigateur | Clé privée protégée, contacts publics épinglés, brouillons et envois en attente chiffrés ; données ouvertes en mémoire |
+| SMTP / MTA / pont | Enveloppe, From/To/Cc externes, taille, horaires ; contenu lisible si le correspondant n’a pas chiffré avant SMTP |
 
-Le hash permet de corréler des MIME identiques et de confirmer un MIME déjà connu.
-La taille et le rythme des livraisons restent visibles. Les enveloppes et les
-résultats d'authentification ne sont pas ajoutés en clair aux lignes du pilote ;
-les en-têtes présents dans le MIME sont préservés à l'intérieur du ciphertext.
-Les logs d'erreur Stalwart n'incluent ni corps, ni clé, ni token. Les logs MTA,
-reverse-proxy et de plateforme ne sont pas contrôlés par ce code.
+Les identifiants des clés destinataires dans les nouveaux messages émis sont
+masqués (wildcard OpenPGP). Le serveur connaît néanmoins les destinataires SMTP,
+y compris les Cci. Les parties protégées contiennent l’objet réel, le texte et
+les pièces jointes. Les clients externes peuvent laisser leur objet en clair.
+Un hash permet de corréler des messages identiques ou de confirmer un MIME connu.
+Les copies en attente dans IndexedDB gardent aussi le routage de l’envoi décidé,
+jamais le corps ou les noms de pièces jointes en clair.
 
-Le Worker chiffre, donc il voit le clair pendant l'ingress. Le serveur fournit
-également le code JavaScript et le certificat destinataire : un serveur compromis
-pourrait les remplacer. Ce jalon n'apporte ni vérification indépendante du code ou
-des clés, ni garantie contre un serveur malveillant, ni signature de l'expéditeur.
-Un destinataire non activé recevant la même copie peut conserver celle-ci dans
-le stockage historique. Les envois, brouillons (dont les pièces jointes ouvertes),
-notes, caches et index historiques restent soumis aux garanties Doota, où
-`MAIL_DEK` est connu du serveur. Effacer le navigateur sans sauvegarde de la clé
-privée peut rendre les messages du pilote définitivement illisibles.
+Aucun message, pièce jointe extraite, fil, contact, notification, calendrier ou
+index FTS historique n’est créé par la réception PgMailCryP. Le consumer Doota
+continue à parser/materialiser les messages des boîtes non activées. Les chemins
+historiques d’envoi/brouillon/pièce jointe refusent les écritures pour une boîte
+activée : ils ne constituent pas un repli silencieux. Les anciens contenus et
+jobs ne sont pas migrés rétroactivement.
 
-## Contrat du pont Stalwart
+## Fiabilité et contrat SMTP
 
-`POST /ingress/stalwart` est un **contrat de pont à implémenter côté MTA**, pas
-l'affirmation qu'un webhook natif Stalwart utilise déjà ce format. Rien n'est
-branché à un MTA réel dans ce dépôt.
+`POST /ingress/stalwart` attend HTTPS et un bearer `STALWART_INGRESS_TOKEN` partagé
+avec le pont. L’exception HTTP est réservée au loopback du test isolé. Sans secret
+configuré : 503 ; mauvaise authentification : 401. JSON : `rawBase64` (base64
+standard), `envelopeFrom` (vide autorisé pour les DSN), `envelopeTo` unique.
+Les champs optionnels sont `receivedAt`, `authenticationResults`, `messageId`.
+L’heure du serveur ordonne les réceptions et le Message-ID RFC vient du MIME.
 
-- HTTPS avec `Authorization: Bearer <STALWART_INGRESS_TOKEN>` ; le secret doit
-  être fourni au Worker et au pont, jamais au navigateur. Absence de secret : 503.
-- JSON : `rawBase64` (MIME original en base64 standard avec padding),
-  `envelopeFrom` (chaîne vide autorisée pour les DSN), `envelopeTo` (une adresse).
-  Champs facultatifs : `receivedAt` (nombre fini), `authenticationResults`
-  (chaîne provenant du MTA de confiance), `messageId` (identifiant transport).
-  Le Message-ID RFC utilisé par Doota est lu dans le MIME, pas dans `messageId`.
-  Le timestamp fourni n'est pas utilisé pour ordonner la liste : l'heure de
-  première persistance est retenue.
-- Un appel par destinataire SMTP, y compris pour les BCC ; ne jamais reconstruire
-  le MIME pour adapter les destinataires. Le pont doit réessayer les mêmes octets.
-- Limite MIME de ce pont HTTP : 10 Mio. Corps JSON borné à 14 Mio pendant la lecture, même sans
-  Content-Length. Les champs d'enveloppe et les métadonnées sont validés.
+Le pont attend une persistance 202 avant de répondre SMTP 250. Les échecs réseau
+et temporaires deviennent 451 pour que Stalwart garde et réessaie sa livraison ;
+un destinataire indisponible devient 550. Un RCPT par transaction évite un
+acquittement partiel ambigu. Les doublons de MIME sont dédupliqués par boîte.
+Le spool Stalwart est durable dans un volume ; les journaux MTA et plateforme
+restent à contrôler selon l’environnement de production.
 
-| Réponse | Obligation du pont/MTA |
-| --- | --- |
-| 202 | Livraison persistée dans R2 **et** D1 pour OpenPGP ; dans R2 **et** la file pour Doota. Le pont peut terminer la livraison. |
-| 422 | Destinataire inconnu/inactif : échec permanent de destinataire (SMTP 550/DSN selon le stade). |
-| 400, 413 | Format invalide ou trop gros : ne pas considérer livré ; rapport d'erreur/quarantaine explicite, et DSN si nécessaire. |
-| 401, 405 | Défaut de configuration du pont : conserver la livraison et alerter l'opérateur. |
-| 503, autre 5xx, timeout ou erreur réseau | Conserver le spool et réessayer avec backoff ; 503 indique Retry-After: 60 pour une panne de livraison. Expiration des retries gérée par le MTA, avec DSN. |
+L’envoi conserve l’intention et l’enveloppe en D1 avant de soumettre à la file.
+Une reprise répare les destinataires manquants. Chaque destinataire a un verrou
+CAS, un bail de 10 minutes et jusqu’à 8 tentatives avec délai. Le pont conserve
+ses reçus SMTP dans SQLite/WAL. Une répétition avec le même identifiant et même
+contenu retrouve son résultat ; un contenu différent est refusé. Une acceptation
+SMTP indéterminée requiert un consentement explicite avant nouvelle tentative
+potentiellement dupliquée. `sent` signifie accepté par le transport, pas lu ni
+nécessairement livré définitivement : les DSN de Stalwart ne sont pas encore
+réconciliés dans ces états.
 
-La persistance se fait R2 puis D1. Un échec D1 peut laisser un objet **chiffré**
-orphelin ; la tentative suivante réutilise sa clé déterministe. Un timeout après
-succès est sans perte : l'index unique `(mailbox_id, id)` évite les doublons.
-La déduplication porte sur les octets exacts par boîte, pas sur Message-ID ; des
-MIME modifiés entre tentatives peuvent produire deux entrées. Le chemin pilote
-acquitte la persistance directement, sans consumer asynchrone. Les limites CPU et
-mémoire du Worker pour le chiffrement avant acquittement (notamment avec les messages
-Cloudflare, dont la limite reste celle du transport) doivent encore être
-mesurées en environnement réel avant mise en production.
+## Vérifications
 
-## Vérification locale sans service externe
+```sh
+pnpm install --frozen-lockfile
+pnpm check
+pnpm test
+node --test infra/local/*.test.mjs
+```
 
-`pnpm --filter doota exec vitest run src/test/pgp-ingress.test.ts` utilise les
-vraies migrations SQLite en mémoire et OpenPGP.js, avec des doublures R2 et file.
-Les tests couvrent publication/autorisations/révocation des droits, clés
-invalides et remplacement, réception Stalwart et Cloudflare/alias, retransmission,
-pannes de stockage, lecture protégée, restitution exacte du MIME et des octets
-d'une pièce jointe binaire. Le chemin scellé est testé sans `MAIL_DEK`.
+Les migrations 0058 (clé), 0059 (réception) et 0060 (brouillons/envois) ont leur
+snapshot et leur entrée dans le journal Drizzle. Les tests appliquent les vraies
+migrations SQLite. Ils vérifient les autorisations, les révisions de brouillon,
+la confidentialité des objets, le MIME/signatures/pièces jointes, la reprise de
+file et un transfert SMTP loopback réel. Les doublures R2 et D1 de cette suite ne
+remplacent pas le test d’installation et de navigateur documenté séparément.
 
-Générer les types locaux via `pnpm --filter doota gen` avant les contrôles web ;
-`worker-configuration.d.ts` est généré et ignoré par Git. `pnpm test` exécute la
-suite complète. Aucun test de ce jalon ne vérifie encore une vraie file Stalwart,
-un échange SMTP réel, l'interface dans un navigateur authentifié ou la capacité
-d'un Worker déployé.
+## Limites de sécurité et fonctionnelles
 
+Un courriel ordinaire reste lisible au premier serveur SMTP et à l’ingress avant
+chiffrement. Déplacer ce chiffrement dans Stalwart protégerait les Workers du
+clair, mais Stalwart le verrait encore. Seul un chiffrement avant l’arrivée sur
+le premier serveur SMTP évite cet accès au contenu. TLS seul ne le fait pas.
+Le serveur distribue aussi le JavaScript : un serveur compromis peut tenter de
+le remplacer. Les empreintes indépendantes réduisent le risque de substitution
+de clé, sans rendre le code navigateur indépendant du serveur.
 
-## Résultats des contrôles de ce jalon
+Restent notamment : audit, récupération/rotation/révocation des clés, boîtes
+partagées, pagination (50 derniers reçus/envois), recherche et fils locaux,
+notifications confidentielles, rapprochement des retours SMTP, installation de
+production avec TLS, sauvegardes/restauration, DKIM/SPF/DMARC et relais externe.
+Les notes, caches et données historiques Doota ne sont pas convertis. Les exports
+volontaires sont lisibles sur l’appareil. Perdre la clé privée et sa phrase de
+passe peut rendre les messages définitivement illisibles.
 
-- Installation initiale pnpm 10.11.0 avec `--frozen-lockfile --ignore-scripts --offline` : réussie.
-- Après intégration du correctif GitHub pnpm 11 : `pnpm install --frozen-lockfile`
-  réussie avec pnpm 11.29.0, scripts de préparation exécutés ; les 622 tests et les
-  contrôles TypeScript ciblés ont également été relancés avec cette version.
-- `pnpm test` : 70 fichiers, 622 tests réussis, dont 13 tests PgMailCryP.
-- TypeScript `@doota/db`, `@doota/mail-core`, `@doota/mail-in` : réussi.
-- Génération Drizzle après 0059 : aucune différence de schéma restante.
-- Build web : réussi avec `ORIGINS=http://localhost:5173` et un `SETUP_TOKEN`
-  factice fourni uniquement à la commande ; aucune configuration externe créée.
-- Contrôle web après génération des types : une erreur préexistante de types
-  Vite 7/Vite 8 dans `apps/web/vite.config.ts`, et un avertissement Svelte
-  préexistant dans `remote-content-card.svelte`. Même résultat reproduit sur une
-  copie du commit antérieur à PgMailCryP utilisant les mêmes dépendances.
-- `pnpm check` global reste arrêté par le type `@cloudflare/workers-types`
-  absent de `packages/utils` ; échec également reproduit sur la copie antérieure.
-  Aucun diagnostic introduit par PgMailCryP ne reste dans les contrôles ciblés.
+## Jalon vérifié le 26 novembre 2026
+
+- `pnpm check` : aucune erreur ; un avertissement Svelte préexistant dans le
+  composant d’administration `remote-content-card.svelte`, non modifié.
+- `pnpm test` : 642 tests, 72 fichiers, tous réussis.
+- Tests de configuration locale : 2 tests réussis, dont réapplication des
+  identités Stalwart sans modification de champs immuables.
+- Construction Linux/Docker et migrations locales réussies ; secrets, comptes
+  et volumes conservés lors d’une réinstallation.
+- Firefox réel, deux sessions : clés sur l’appareil, publication et contacts
+  épinglés, brouillon chiffré, envoi via Stalwart, lecture, signature vérifiée,
+  pièce jointe binaire exacte, copie envoyée, réponse et transfert livrés.
+  Aucun marqueur de contenu ou phrase de passe du test dans les corps des appels
+  `fetch` surveillés.
+
+Ces résultats concernent l’environnement isolé décrit ici. Ils ne constituent
+pas un audit, une validation SMTP Internet ou une certification zero-access.

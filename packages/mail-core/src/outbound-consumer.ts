@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { deliverPgpSubmission, type PgpOutboundEnv } from "./pgp-outbound";
 import { drizzle } from "drizzle-orm/d1";
 import * as schema from "@doota/db/schema";
 import * as mail from "@doota/db/mail.schema";
@@ -30,7 +31,7 @@ import type { OutboundJob } from "./outbound";
  * materializeDelivery instead of going out to SMTP and back.
  */
 
-export type OutboundConsumerEnv = {
+export type OutboundConsumerEnv = PgpOutboundEnv & {
   DB: D1Database;
   MAIL_RAW: R2Bucket;
   MAIL_DEK: string;
@@ -62,11 +63,17 @@ const TERMINAL = new Set(["sent", "delivered", "bounced_hard", "bounced_soft", "
 
 export async function handleOutboundQueue(batch: QueueBatch, env: OutboundConsumerEnv): Promise<void> {
   const db = drizzle(env.DB, { schema });
-  const ck = await importKey(env.MAIL_DEK);
+  let ck: ContentKey | undefined;
 
   for (const m of batch.messages) {
     try {
-      await processSubmission(db, env, ck, m);
+      if (m.body.kind === "pgp") {
+        await deliverPgpSubmission(db, env, m.body.submissionId);
+        m.ack();
+      } else {
+        ck ??= await importKey(env.MAIL_DEK);
+        await processSubmission(db, env, ck, m);
+      }
     } catch (e) {
       // A soft/unclassified failure: retry the whole job with backoff.
       log.error("out.job_retry", { subId: m.body.submissionId, ...errInfo(e) });
@@ -182,6 +189,9 @@ export async function processSubmission(
     }
     m.ack();
   };
+
+  const pgpKey = await db.query.mailboxPgpKey.findFirst({ where: eq(schema.mailboxPgpKey.mailboxId, sub.mailboxId), columns: { mailboxId: true } });
+  if (pgpKey) return fail("OpenPGP enabled: legacy plaintext submission blocked");
 
   // Attempt cap for rescued crash-loops: the soft-error path caps itself, but a
   // job that dies before any provider call would otherwise be re-swept forever.

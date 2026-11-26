@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import type { DrizzleD1Database } from "drizzle-orm/d1";
 import * as schema from "@doota/db/schema";
+import { sweepPgpOutbox } from "./pgp-outbound";
 import { sweepDueSubmissions, type OutboundEnv } from "./outbound";
 import { sweepStaleDrafts } from "./drafts";
 import { sweepDueSnoozes } from "./snooze";
@@ -30,7 +31,7 @@ export async function runScheduledSweeps(
   db: Db,
   env: OutboundEnv,
 ): Promise<{ dueEnqueued: number; snoozesWoken: number; webhooksRedriven: number; staleDraftsDeleted: number; notificationsPruned: number; pushSubsPruned: number; sendDataPurged: number; changeLogPruned: number; junkHidden: number; webhookDeliveriesPruned: number }> {
-  const dueEnqueued = await sweepDueSubmissions(db, env.MAIL_OUT_QUEUE);
+  const dueEnqueued = await sweepDueSubmissions(db, env.MAIL_OUT_QUEUE) + await sweepPgpOutbox(db, env.MAIL_OUT_QUEUE);
   // User-facing timing (a snooze returning to the inbox) — runs every 5 min, not
   // daily-gated.
   const snoozesWoken = await sweepDueSnoozes(db);

@@ -15,6 +15,7 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu/index.js';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog/index.js';
 	import ChevronDownIcon from '@lucide/svelte/icons/chevron-down';
+	import PgpComposeNotice from './pgp-compose-notice.svelte';
 	import FromSelector from './from-selector.svelte';
 	import RecipientInput from './recipient-input.svelte';
 	import TiptapEditor from './tiptap-editor.svelte';
@@ -304,6 +305,10 @@
 				{/if}
 
 				{#if !minimized}
+					{#if session.requiresPgp}
+						<div class="p-3"><FromSelector identities={session.identities} bind:mailboxId={session.mailboxId} bind:aliasId={session.aliasId} /></div>
+						<PgpComposeNotice mailboxId={session.mailboxId} />
+					{:else}
 					<!-- Body fills the fixed-height panel; the editor flexes so nothing
 					     shifts. overflow-y-auto is the small-window escape valve. -->
 					<div class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto overscroll-contain px-3 pt-3">
@@ -434,6 +439,7 @@
 							</DropdownMenu.Root>
 						</div>
 					</div>
+					{/if}
 				{/if}
 				<input bind:this={fileInput} type="file" multiple class="hidden" onchange={onFiles} />
 			</div>
