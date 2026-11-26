@@ -85,13 +85,21 @@ Le runtime conteneurisé fournit Node 24 et pnpm à la version verrouillée.
 ```sh
 git clone --branch codex/pgmailcryp-receive-pilot https://github.com/williamcadev/PgMailCryP.git
 cd PgMailCryP
-node infra/local/install.mjs --domain VOTRE_DOMAINE --state "$HOME/.pgmailcryp-test" --test-accounts
+node infra/local/install.mjs --domain VOTRE_DOMAINE --state "$HOME/.pgmailcryp-test"
 ```
 
-Les comptes de test facultatifs Alice et Bob sont créés uniquement dans une
-instance vide, avec des mots de passe aléatoires dans son dossier privé. Chaque
-utilisateur crée sa clé OpenPGP **dans son navigateur**. L’installation conserve
-ses secrets et volumes lors d’un nouveau lancement.
+L’installateur conserve un lien privé dans `setup-url.txt`, dans son dossier
+d’état. Sur une installation vide, ce lien ouvre l’écran PgMailCryP : nom,
+adresse de connexion externe, mot de passe et première adresse de messagerie.
+Le domaine vient de la configuration de l’installateur, sans appel Cloudflare.
+Après connexion, la double authentification et une passkey restent obligatoires
+pour l’administrateur. L’écran d’installation indique ensuite l’état du transport
+et conduit à la création de la clé OpenPGP **sur l’appareil**.
+
+L’option facultative `--test-accounts` crée plutôt Alice et Bob pour les tests
+automatisés, uniquement dans une instance vide. Elle ne crée pas d’administrateur.
+Leur présence verrouille le premier démarrage, comme tout compte existant.
+Un nouveau lancement conserve les secrets, comptes et volumes.
 
 Depuis son poste, pour accéder au serveur distant :
 
