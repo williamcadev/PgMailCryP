@@ -5,7 +5,9 @@
 PgMailCryP est un fork en développement de Doota. Le projet conserve sa base
 SvelteKit et ses services mail, mais remplace progressivement le chiffrement
 connu du serveur par du chiffrement et du déchiffrement dans le navigateur.
-Le domaine du projet est **`anonyme.here`**, dont le DNS est géré par Cloudflare.
+Chaque installation utilise **son propre domaine**, fourni à la configuration.
+`anonyme.here`, avec DNS Cloudflare, est uniquement le domaine de notre instance
+de test ; ce n’est ni un domaine imposé ni une valeur par défaut du logiciel.
 
 > **État : développement et tests, pas encore une version de production.**
 > Le pilote publié se trouve sur la branche
@@ -60,7 +62,8 @@ sont encore en cours de validation.
 communiquer avec lui.** Le pont SMTP fait partie de cet ensemble ; son raccordement
 ne doit pas être une étape laissée à deviner après l’installation.
 
-La machine de test retenue est **Lenovo**, accessible par `ssh lenovo`. La cible
+Pour notre instance, la machine de test retenue est **Lenovo**, accessible par
+`ssh lenovo`. Les autres installations utiliseront leur propre serveur. La cible
 prévue regroupe l’application, Stalwart, le pont authentifié, les secrets de
 communication générés localement et un test de livraison.
 
@@ -108,7 +111,10 @@ confiance ; les empreintes des clés doivent être comparées indépendamment.
 
 ## Informations d’exploitation nécessaires
 
-- **Connues :** domaine `anonyme.here`, DNS Cloudflare, serveur de test Lenovo.
+- **À fournir pour chaque installation :** son domaine, ses noms d’hôtes, son
+  serveur et ses paramètres DNS. Aucun compte, domaine ou secret de notre
+  instance de test ne doit être repris automatiquement.
+- **Notre instance seulement :** domaine `anonyme.here`, DNS Cloudflare, Lenovo.
 - **Cloudflare :** compte et zone cibles, URL de l’application et ressources
   réservées aux tests ; authentification via les outils ou secrets locaux.
 - **Stalwart :** version et image verrouillées par l’installation, routage SMTP
