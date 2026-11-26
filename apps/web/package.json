@@ -107,6 +107,7 @@
     "fflate": "^0.8.2",
     "harper.js": "^2.4.0",
     "mrml": "^1.6.1",
+    "openpgp": "^6.3.3",
     "pdfjs-dist": "^6.1.200",
     "postal-mime": "^2.7.5",
     "runed": "^0.37.1",

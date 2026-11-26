@@ -4,6 +4,7 @@ import * as schema from "@doota/db/schema";
 import { resolveRecipient } from "./resolver";
 import { importKey, putEncryptedBlob } from "./crypto";
 import { log } from "./log";
+import { decodeStalwartWebhook } from "./ingress";
 
 /**
  * `mail-in` handler — Cloudflare Email Routing catch-all target. Runs merged
@@ -40,6 +41,8 @@ export type MailEnv = {
   VAPID_PUBLIC_KEY?: string;
   VAPID_PRIVATE_KEY?: string;
   LOG_LEVEL?: string;
+  /** Bearer secret required by the optional Stalwart HTTP ingress endpoint. */
+  STALWART_INGRESS_TOKEN?: string;
 };
 
 export type InboundJob = {
@@ -137,4 +140,33 @@ export async function handleEmail(
     authResults,
   };
   await env.MAIL_QUEUE.send(job);
+}
+
+/** Adapt a Stalwart HTTP delivery into the existing Cloudflare mail pipeline. */
+export async function handleStalwartWebhook(request: Request, env: MailEnv): Promise<Response> {
+  if (!env.STALWART_INGRESS_TOKEN) return new Response("Stalwart ingress is not configured", { status: 503 });
+  const authorization = request.headers.get("authorization") ?? "";
+  const expected = `Bearer ${env.STALWART_INGRESS_TOKEN}`;
+  let mismatch = authorization.length ^ expected.length;
+  for (let index = 0; index < Math.max(authorization.length, expected.length); index++) {
+    mismatch |= (authorization.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
+  }
+  if (mismatch !== 0) return new Response("Unauthorized", { status: 401 });
+  if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+  try {
+    const normalized = decodeStalwartWebhook(await request.json());
+    const headers = new Headers({ "message-id": normalized.providerMessageId ?? "" });
+    if (normalized.authenticationResults) headers.set("authentication-results", normalized.authenticationResults);
+    await handleEmail({
+      from: normalized.envelopeFrom,
+      to: normalized.envelopeTo,
+      raw: new Response(normalized.raw).body!,
+      headers,
+      setReject() {},
+    }, env);
+    return new Response(null, { status: 202 });
+  } catch (error) {
+    log.error("in.stalwart_webhook_failed", { error: error instanceof Error ? error.message : String(error) });
+    return new Response("Invalid or unprocessable mail", { status: 400 });
+  }
 }

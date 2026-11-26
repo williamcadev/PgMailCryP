@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { handleEmail, type InboundJob, type MailEnv } from "@doota/mail-core/inbound-worker";
+import { handleEmail, handleStalwartWebhook, type InboundJob, type MailEnv } from "@doota/mail-core/inbound-worker";
 import { handleQueue } from "@doota/mail-core/queue-consumer";
 import { initLogLevel } from "@doota/mail-core/log";
 
@@ -18,6 +18,14 @@ import { initLogLevel } from "@doota/mail-core/log";
  * Vars: LOG_LEVEL (optional, debug|info|warn|error, default info).
  */
 export default {
+  async fetch(request, env): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === "/ingress/stalwart") {
+      initLogLevel(env);
+      return handleStalwartWebhook(request, env);
+    }
+    return new Response("Not found", { status: 404 });
+  },
   // Bucket-first, accept-and-enqueue (see inbound-worker.ts). Awaited (not
   // waitUntil): the work is fast (R2 put + queue send) and must finish before we
   // accept. A failed enqueue then rejects the message so Email Routing retries,

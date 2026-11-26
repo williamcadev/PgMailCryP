@@ -117,6 +117,18 @@ export const mailbox = sqliteTable(
   ],
 );
 
+/** Public OpenPGP recipient key for client-side encrypted mailbox delivery. */
+export const mailboxPgpKey = sqliteTable("mailbox_pgp_key", {
+  mailboxId: text("mailbox_id")
+    .primaryKey()
+    .references(() => mailbox.id, { onDelete: "cascade" }),
+  publicKeyArmored: text("public_key_armored").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .notNull(),
+});
+
 /**
  * Shared-mailbox grant. Capability flags are resolved through the existing
  * can() (never a parallel permission path). Shaped so a nullable team scope is
