@@ -1,26 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 import { command, getRequestEvent, query } from '$app/server';
 import { error } from '@sveltejs/kit';
-import { eq } from 'drizzle-orm';
+import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import * as openpgp from 'openpgp';
 import * as mail from '@doota/db/mail.schema';
-import { getAuthz } from '$lib/server/authz.js';
+import { readRecipientKey } from '@doota/mail-core/pgp';
+import { requirePersonalPgpMailbox } from '$lib/server/pgp';
 
 async function requireMailboxAccess(mailboxId: string) {
 	const { locals } = getRequestEvent();
-	if (!locals.user) error(401, 'Not authenticated');
-	const { mailboxIds } = await getAuthz();
-	if (!mailboxIds.includes(mailboxId)) error(403, 'Mailbox access required');
-	const box = await locals.db.query.mailbox.findFirst({
-		where: eq(mail.mailbox.id, mailboxId),
-		columns: { isPersonal: true },
-	});
-	if (!box) error(404, 'Mailbox not found');
+	await requirePersonalPgpMailbox(locals.db, locals.user?.id, mailboxId);
 	return locals.db;
 }
 
-export const mailboxPgpPublicKey = query(z.string(), async (mailboxId) => {
+export const mailboxPgpPublicKey = query(z.string().min(1), async (mailboxId) => {
 	const db = await requireMailboxAccess(mailboxId);
 	const row = await db.query.mailboxPgpKey.findFirst({
 		where: eq(mail.mailboxPgpKey.mailboxId, mailboxId),
@@ -33,21 +26,27 @@ export const publishMailboxPgpKey = command(
 	z.object({ mailboxId: z.string().min(1), publicKeyArmored: z.string().min(1).max(100_000) }),
 	async ({ mailboxId, publicKeyArmored }) => {
 		const db = await requireMailboxAccess(mailboxId);
-		const box = await db.query.mailbox.findFirst({
-			where: eq(mail.mailbox.id, mailboxId),
-			columns: { isPersonal: true },
-		});
-		if (!box?.isPersonal) error(400, 'OpenPGP keys are currently supported for personal mailboxes only.');
-		let key: openpgp.PublicKey;
-		try {
-			key = await openpgp.readKey({ armoredKey: publicKeyArmored });
-		} catch {
-			error(400, 'Invalid OpenPGP public key');
-		}
-		const normalized = key.armor();
+		let key;
+		try { key = await readRecipientKey(publicKeyArmored); }
+		catch { error(400, 'A single valid public encryption key is required'); }
 		const fingerprint = key.getFingerprint().toUpperCase();
-		await db.insert(mail.mailboxPgpKey).values({ mailboxId, publicKeyArmored: normalized, fingerprint })
-			.onConflictDoUpdate({ target: mail.mailboxPgpKey.mailboxId, set: { publicKeyArmored: normalized, fingerprint, updatedAt: new Date() } });
+		// First publication is atomic. A concurrent different publication cannot
+		// replace this key. Rotation/revocation needs a separate recovery design.
+		await db.insert(mail.mailboxPgpKey).values({ mailboxId, publicKeyArmored: key.armor(), fingerprint }).onConflictDoNothing();
+		const stored = await db.query.mailboxPgpKey.findFirst({ where: eq(mail.mailboxPgpKey.mailboxId, mailboxId) });
+		if (stored?.fingerprint !== fingerprint) error(409, 'Key replacement is not supported; retain the original private key');
+		await mailboxPgpPublicKey(mailboxId).refresh();
 		return { fingerprint };
 	},
 );
+
+/** Opaque message list. No sender, subject, snippet or attachment names on server. */
+export const pgpInbox = query(z.string().min(1), async (mailboxId) => {
+	const db = await requireMailboxAccess(mailboxId);
+	return db.query.pgpInboxMessage.findMany({
+		where: eq(mail.pgpInboxMessage.mailboxId, mailboxId),
+		columns: { id: true, fingerprint: true, receivedAt: true },
+		orderBy: [desc(mail.pgpInboxMessage.receivedAt), desc(mail.pgpInboxMessage.id)],
+		limit: 50,
+	});
+});

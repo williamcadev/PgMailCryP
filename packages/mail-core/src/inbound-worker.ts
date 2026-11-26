@@ -4,7 +4,9 @@ import * as schema from "@doota/db/schema";
 import { resolveRecipient } from "./resolver";
 import { importKey, putEncryptedBlob } from "./crypto";
 import { log } from "./log";
-import { decodeStalwartWebhook } from "./ingress";
+import { decodeStalwartWebhook, MAX_INGRESS_BYTES } from "./ingress";
+import { storePgpIncoming } from "./pgp";
+import PostalMime from "postal-mime";
 
 /**
  * `mail-in` handler — Cloudflare Email Routing catch-all target. Runs merged
@@ -104,6 +106,7 @@ export async function handleEmail(
   // absent) and store it. Inbound emails are small; buffering keeps the key
   // stable for idempotent R2 writes.
   const rawBuf = await new Response(message.raw).arrayBuffer();
+  if (await storePgpIncoming(db, env.MAIL_RAW, resolved.mailboxId, rawBuf)) return;
   const messageIdHeader = message.headers.get("message-id");
   // CF stamps Authentication-Results on the forwarded message — authoritative
   // here (before it's buried in the stored raw). Captured now, stored downstream.
@@ -121,7 +124,7 @@ export async function handleEmail(
   const r2RawKey = `raw/${resolved.orgId}/${keyId}`;
 
   // Idempotent put: same key overwrites identical bytes; a redelivery is a no-op.
-  // Stored gzip+encrypted at rest (zero-access): no plaintext email lives in R2.
+  // Stored gzip+encrypted at rest with the server-held MAIL_DEK (not zero-access).
   const ck = await importKey(env.MAIL_DEK);
   await putEncryptedBlob(env.MAIL_RAW, r2RawKey, ck, rawBuf, {
     httpMetadata: { contentType: "application/octet-stream" },
@@ -152,21 +155,58 @@ export async function handleStalwartWebhook(request: Request, env: MailEnv): Pro
     mismatch |= (authorization.charCodeAt(index) || 0) ^ (expected.charCodeAt(index) || 0);
   }
   if (mismatch !== 0) return new Response("Unauthorized", { status: 401 });
-  if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
+  if (request.method !== "POST") return new Response("Method not allowed", { status: 405, headers: { Allow: "POST" } });
+  if (Number(request.headers.get("content-length")) > MAX_INGRESS_BYTES * 1.4) {
+    return new Response("Payload too large", { status: 413 });
+  }
+  let normalized;
   try {
-    const normalized = decodeStalwartWebhook(await request.json());
-    const headers = new Headers({ "message-id": normalized.providerMessageId ?? "" });
+    // Bound the body while reading; Content-Length alone is untrusted/optional.
+    const reader = request.body?.getReader();
+    if (!reader) return new Response("Missing payload", { status: 400 });
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    while (true) {
+      let chunk;
+      try { chunk = await reader.read(); }
+      catch { return new Response("Payload transfer interrupted", { status: 503 }); }
+      const { done, value } = chunk;
+      if (done) break;
+      size += value.byteLength;
+      if (size > MAX_INGRESS_BYTES * 1.4) {
+        await reader.cancel();
+        return new Response("Payload too large", { status: 413 });
+      }
+      chunks.push(value);
+    }
+    const body = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.length; }
+    normalized = decodeStalwartWebhook(JSON.parse(new TextDecoder().decode(body)));
+  } catch {
+    return new Response("Invalid Stalwart payload", { status: 400 });
+  }
+  try {
+    // A transport delivery ID is not the RFC Message-ID. Legacy threading must
+    // use the original MIME header; authentication comes only from the bridge.
+    const parsed = await PostalMime.parse(normalized.raw);
+    const headers = new Headers();
+    if (parsed.messageId) headers.set("message-id", parsed.messageId);
     if (normalized.authenticationResults) headers.set("authentication-results", normalized.authenticationResults);
+    let rejected = false;
     await handleEmail({
       from: normalized.envelopeFrom,
       to: normalized.envelopeTo,
       raw: new Response(normalized.raw).body!,
       headers,
-      setReject() {},
+      setReject() { rejected = true; },
     }, env);
+    if (rejected) return new Response("Recipient does not exist", { status: 422 });
     return new Response(null, { status: 202 });
-  } catch (error) {
-    log.error("in.stalwart_webhook_failed", { error: error instanceof Error ? error.message : String(error) });
-    return new Response("Invalid or unprocessable mail", { status: 400 });
+  } catch {
+    // Storage, D1, queue or key failures are transient: the bridge MUST retain
+    // the SMTP delivery and retry. No payload or credentials in logs.
+    log.error("in.stalwart_delivery_failed");
+    return new Response("Delivery temporarily unavailable", { status: 503, headers: { "Retry-After": "60" } });
   }
 }

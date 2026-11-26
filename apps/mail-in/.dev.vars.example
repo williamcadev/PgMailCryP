@@ -12,3 +12,7 @@ MAIL_SEARCH_KEY=""
 # Web push — same pair as apps/web (node scripts/gen-vapid-keys.mjs).
 VAPID_PUBLIC_KEY=""
 VAPID_PRIVATE_KEY=""
+
+# Optional authenticated Stalwart bridge (see docs/pgmailcryp.md).
+# Leave empty to disable /ingress/stalwart. Never put this value in wrangler vars.
+STALWART_INGRESS_TOKEN=""

@@ -53,7 +53,9 @@
     "./sender-trust": "./src/sender-trust.ts",
     "./unsubscribe": "./src/unsubscribe.ts",
     "./vacation": "./src/vacation.ts",
-    "./web-push": "./src/web-push.ts"
+    "./web-push": "./src/web-push.ts",
+    "./pgp": "./src/pgp.ts",
+    "./ingress": "./src/ingress.ts"
   },
   "dependencies": {
     "@doota/db": "workspace:*",
@@ -61,7 +63,8 @@
     "drizzle-orm": "^0.45.2",
     "ical.js": "^2.2.1",
     "neosanitize": "^0.3.0",
-    "postal-mime": "^2.7.5"
+    "postal-mime": "^2.7.5",
+    "openpgp": "^6.3.3"
   },
   "peerDependencies": {
     "@sveltejs/kit": "^2.69.2"

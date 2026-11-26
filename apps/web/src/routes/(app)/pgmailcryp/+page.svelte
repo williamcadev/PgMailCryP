@@ -1,10 +1,11 @@
 <script lang="ts">
 	// SPDX-License-Identifier: Apache-2.0
 	import { onMount } from 'svelte';
+	import { decryptPgpMime } from '$lib/client/pgp-inbox';
 	import * as openpgp from 'openpgp';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import { myMailboxes } from '$lib/rpc/mailbox.remote';
-	import { publishMailboxPgpKey } from '$lib/rpc/pgp.remote';
+	import { publishMailboxPgpKey, mailboxPgpPublicKey, pgpInbox } from '$lib/rpc/pgp.remote';
 
 	const storageKey = 'pgmailcryp:encrypted-private-key';
 	let address = $state('');
@@ -22,7 +23,39 @@
 	let selectedMailboxId = $state('');
 	const mailboxQuery = myMailboxes();
 	const mailboxes = $derived((mailboxQuery.current ?? []).filter((mailbox) => mailbox.isPersonal));
-	const activeMailboxId = $derived(selectedMailboxId || mailboxes[0]?.id || '');
+	const activeMailboxId = $derived(selectedMailboxId);
+	const publishedKey = $derived(activeMailboxId ? mailboxPgpPublicKey(activeMailboxId) : null);
+	const inbox = $derived(activeMailboxId ? pgpInbox(activeMailboxId) : null);
+	let received = $state<Awaited<ReturnType<typeof decryptPgpMime>> | null>(null);
+	let readVersion = 0;
+	$effect(() => { activeMailboxId; readVersion++; received = null; });
+
+	async function openReceived(id: string) {
+		if (!unlockedPrivateKey) return;
+		const version = ++readVersion;
+		const key = unlockedPrivateKey;
+		busy = true;
+		error = '';
+		received = null;
+		try {
+			const response = await fetch(`/api/pgp/${encodeURIComponent(activeMailboxId)}/${encodeURIComponent(id)}`, { cache: 'no-store' });
+			if (!response.ok) throw new Error(`Lecture impossible (${response.status}).`);
+			const result = await decryptPgpMime(await response.text(), key);
+			if (version === readVersion) received = result;
+		} catch (cause) {
+			if (version === readVersion) error = cause instanceof Error ? cause.message : 'Déchiffrement impossible.';
+		} finally { busy = false; }
+	}
+
+	function downloadBytes(filename: string, bytes: Uint8Array) {
+		const link = document.createElement('a');
+		const url = URL.createObjectURL(new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' }));
+		link.href = url;
+		link.download = filename;
+		link.click();
+		setTimeout(() => URL.revokeObjectURL(url), 1000);
+	}
+
 
 	onMount(() => {
 		const saved = localStorage.getItem(storageKey);
@@ -46,12 +79,13 @@
 		}
 		busy = true;
 		try {
-			const pair = await openpgp.generateKey({ type: 'ecc', curve: 'ed25519', userIDs: [{ email: address }] });
+			const pair = await openpgp.generateKey({ type: 'curve25519', userIDs: [{ email: address }] });
 			const protectedKey = await openpgp.encryptKey({ privateKey: await openpgp.readPrivateKey({ armoredKey: pair.privateKey }), passphrase });
 			publicKeyArmored = pair.publicKey;
 			privateKeyArmored = protectedKey.armor();
 			localStorage.setItem(storageKey, JSON.stringify({ address, publicKey: publicKeyArmored, privateKey: privateKeyArmored }));
-			unlockedPrivateKey = protectedKey;
+			unlockedPrivateKey = null;
+			passphrase = '';
 			status = 'Clé créée. La clé privée conservée sur cet appareil est chiffrée par ta phrase de passe.';
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'La création de clé a échoué.';
@@ -66,6 +100,7 @@
 		const file = input.files?.[0];
 		if (!file) return;
 		try {
+			if (file.size > 100_000) throw new Error('Fichier de clé trop volumineux.');
 			if (passphrase.length < 12) throw new Error('Saisis une phrase de passe de 12 caractères minimum pour protéger la clé importée.');
 			const imported = await openpgp.readPrivateKey({ armoredKey: await file.text() });
 			const protectedKey = imported.isDecrypted()
@@ -74,6 +109,8 @@
 			privateKeyArmored = protectedKey.armor();
 			publicKeyArmored = protectedKey.toPublic().armor();
 			localStorage.setItem(storageKey, JSON.stringify({ address, publicKey: publicKeyArmored, privateKey: privateKeyArmored }));
+			unlockedPrivateKey = null;
+			passphrase = '';
 			status = 'Clé importée et conservée chiffrée dans le navigateur. Saisis sa phrase de passe pour la déverrouiller.';
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Impossible de lire cette clé privée OpenPGP.';
@@ -87,6 +124,7 @@
 		try {
 			const key = await openpgp.readPrivateKey({ armoredKey: privateKeyArmored });
 			unlockedPrivateKey = key.isDecrypted() ? key : await openpgp.decryptKey({ privateKey: key, passphrase });
+			passphrase = '';
 			status = 'Clé déverrouillée en mémoire dans cet onglet.';
 		} catch {
 			unlockedPrivateKey = null;
@@ -101,7 +139,10 @@
 		if (!activeMailboxId || !publicKeyArmored) return;
 		busy = true;
 		try {
-			const result = await publishMailboxPgpKey({ mailboxId: activeMailboxId, publicKeyArmored });
+			const localPrivate = await openpgp.readPrivateKey({ armoredKey: privateKeyArmored });
+			const localPublic = await openpgp.readKey({ armoredKey: publicKeyArmored });
+			if (localPrivate.getFingerprint() !== localPublic.getFingerprint()) throw new Error('La clé publique ne correspond pas à la clé privée locale.');
+			const result = await publishMailboxPgpKey({ mailboxId: activeMailboxId, publicKeyArmored: localPrivate.toPublic().armor() });
 			status = `Clé publique publiée pour cette boîte. Empreinte ${result.fingerprint}`;
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : 'Impossible de publier la clé publique.';
@@ -111,6 +152,8 @@
 	}
 
 	function lockKey() {
+		readVersion++;
+		received = null;
 		unlockedPrivateKey = null;
 		decryptedMessage = '';
 		passphrase = '';
@@ -158,7 +201,7 @@
 	<header class="space-y-2">
 		<p class="text-sm font-medium text-primary">PgMailCryP · Prototype</p>
 		<h1 class="text-3xl font-semibold tracking-tight">Atelier OpenPGP</h1>
-		<p class="text-muted-foreground">Génère une clé sur cet appareil, puis chiffre un message de démonstration. La clé privée et le message ne sont envoyés à aucun serveur depuis cette page.</p>
+		<p class="text-muted-foreground">La clé privée reste sur cet appareil. Publier la clé publique active une réception séparée : les nouveaux messages se lisent ici, après déchiffrement local. Sauvegarde ta clé privée chiffrée avant de publier.</p>
 	</header>
 
 	{#if error}<p role="alert" class="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">{error}</p>{/if}
@@ -176,13 +219,41 @@
 			{:else}<Button variant="outline" onclick={lockKey}>Verrouiller</Button>{/if}
 			{#if publicKeyArmored}<Button variant="outline" onclick={() => downloadKey('pgmailcryp-public.asc', publicKeyArmored)}>Exporter la clé publique</Button><Button variant="outline" onclick={() => downloadKey('pgmailcryp-private-encrypted.asc', privateKeyArmored)}>Exporter la clé privée chiffrée</Button>{/if}
 		</div>
-		{#if publicKeyArmored}<div class="mt-4 flex flex-wrap items-end gap-3"><label class="grid min-w-64 gap-2 text-sm">Boîte de réception<select class="rounded-md border bg-background px-3 py-2" bind:value={selectedMailboxId}><option value="">Sélectionner une boîte</option>{#each mailboxes as mailbox (mailbox.id)}<option value={mailbox.id}>{mailbox.address}</option>{/each}</select></label><Button disabled={busy || !activeMailboxId} onclick={publishPublicKey}>Publier la clé publique pour cette boîte</Button></div>{/if}
+		{#if publicKeyArmored}<div class="mt-4 flex flex-wrap items-end gap-3"><label class="grid min-w-64 gap-2 text-sm">Boîte de réception<select class="rounded-md border bg-background px-3 py-2" bind:value={selectedMailboxId}><option value="">Sélectionner une boîte</option>{#each mailboxes as mailbox (mailbox.id)}<option value={mailbox.id}>{mailbox.address}</option>{/each}</select></label><Button disabled={busy || !activeMailboxId} onclick={publishPublicKey}>Activer la réception avec cette clé publique</Button></div>{/if}
 		{#if !privateKeyArmored}<label class="mt-4 grid max-w-sm gap-2 text-sm">Ou importer une clé privée OpenPGP<input class="rounded-md border p-2 text-sm" type="file" accept=".asc,.pgp,.gpg,text/plain" onchange={importPrivateKey} /></label>{/if}
 		{#if publicKeyArmored}<details class="mt-4"><summary class="cursor-pointer text-sm">Afficher la clé publique</summary><textarea readonly class="mt-2 min-h-28 w-full rounded-md border bg-muted p-3 font-mono text-xs" value={publicKeyArmored}></textarea></details>{/if}
 	</section>
 
 	<section class="rounded-xl border p-5">
-		<h2 class="text-lg font-semibold">2. Message de test</h2>
+		<h2 class="text-lg font-semibold">2. Réception chiffrée · pilote</h2>
+		<p class="mt-2 text-sm text-muted-foreground">Les 50 derniers messages reçus après activation sont affichés ici, séparément des fils Doota. Le serveur voit le SMTP pendant la réception. Les anciens messages, les envois et les brouillons gardent le stockage Doota. Le remplacement de clé est bloqué.</p>
+		{#if publishedKey?.current}<p class="mt-3 break-all text-xs">Clé publiée : {publishedKey.current.fingerprint}</p>{/if}
+		{#if publishedKey?.error || inbox?.error}<p role="alert" class="mt-2 text-sm">Impossible de charger cette boîte. Vérifie tes droits et les migrations.</p>{/if}
+		<Button class="mt-3" variant="outline" disabled={!inbox || busy} onclick={() => inbox?.refresh()}>Actualiser la réception</Button>
+		{#if inbox?.current}
+			<ul class="mt-3 grid gap-2">
+				{#each inbox.current as item (item.id)}
+					<li class="flex flex-wrap items-center gap-2 rounded-md border p-2"><span class="text-sm">{new Date(item.receivedAt).toLocaleString()}</span><Button variant="outline" disabled={busy || !unlockedPrivateKey} onclick={() => openReceived(item.id)}>Ouvrir localement</Button></li>
+				{:else}<li class="text-sm text-muted-foreground">Aucun message reçu dans ce parcours.</li>{/each}
+			</ul>
+		{/if}
+		{#if received}
+			<div class="mt-4 grid gap-3 rounded-md border p-3">
+				<h3 class="font-semibold">{received.email.subject || '(sans objet)'}</h3>
+				<p class="text-sm">De : {received.email.from?.address || '(inconnu)'}</p>
+				<p class="text-xs text-muted-foreground">Contenu déchiffré localement. Le chiffrement de réception ne vérifie pas l’identité de l’expéditeur.</p>
+				<pre class="whitespace-pre-wrap break-words font-sans text-sm">{received.email.text || received.email.html || '(message sans texte)'}</pre>
+				{#if !received.email.text && received.email.html}<p class="text-xs text-muted-foreground">Source HTML affichée comme texte ; aucune ressource distante chargée.</p>{/if}
+				{#each received.email.attachments as attachment, i}
+					<Button variant="outline" onclick={() => downloadBytes(attachment.filename || `piece-jointe-${i + 1}`, typeof attachment.content === 'string' ? new TextEncoder().encode(attachment.content) : new Uint8Array(attachment.content))}>Télécharger {attachment.filename || `pièce jointe ${i + 1}`}</Button>
+				{/each}
+				<Button variant="outline" onclick={() => received && downloadBytes('message.eml', received.raw)}>Exporter le MIME déchiffré (.eml)</Button>
+			</div>
+		{/if}
+	</section>
+
+	<section class="rounded-xl border p-5">
+		<h2 class="text-lg font-semibold">3. Message de test</h2>
 		<p class="mt-1 text-sm text-muted-foreground">Laisse la clé destinataire vide pour chiffrer vers ta propre clé. Tu peux aussi coller la clé publique d’un destinataire.</p>
 		<label class="mt-4 grid gap-2 text-sm">Clé publique du destinataire<textarea class="min-h-24 rounded-md border bg-background p-3 font-mono text-xs" bind:value={recipientPublicKey} placeholder="Optionnel · colle une clé publique OpenPGP"></textarea></label>
 		<label class="mt-4 grid gap-2 text-sm">Message<textarea class="min-h-28 rounded-md border bg-background p-3" bind:value={message} placeholder="Écris un message de test…"></textarea></label>
@@ -191,5 +262,5 @@
 		{#if decryptedMessage}<div class="mt-4 rounded-md border bg-muted p-3"><p class="text-xs text-muted-foreground">Texte déchiffré localement</p><p class="mt-1 whitespace-pre-wrap">{decryptedMessage}</p></div>{/if}
 	</section>
 
-	<p class="text-xs text-muted-foreground">Prototype local. La clé privée chiffrée est conservée dans le stockage local du navigateur. La gestion multi-appareils, la récupération et le transport mail ne sont pas encore branchés.</p>
+	<p class="text-xs text-muted-foreground">Pilote de réception, sans garantie zero-access globale. La clé privée chiffrée est conservée dans le stockage local de ce navigateur. Exporte-la : supprimer ces données sans sauvegarde peut rendre les messages définitivement illisibles. La gestion multi-appareils, la rotation et la récupération ne sont pas encore disponibles.</p>
 </main>

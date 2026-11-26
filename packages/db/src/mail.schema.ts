@@ -129,6 +129,19 @@ export const mailboxPgpKey = sqliteTable("mailbox_pgp_key", {
     .notNull(),
 });
 
+/** Isolated OpenPGP inbox: no body, subject, sender or attachment metadata. */
+export const pgpInboxMessage = sqliteTable("pgp_inbox_message", {
+  id: text("id").notNull(), // SHA-256 of original bytes, scoped to mailbox
+  mailboxId: text("mailbox_id").notNull().references(() => mailbox.id, { onDelete: "cascade" }),
+  fingerprint: text("fingerprint").notNull(),
+  r2Key: text("r2_key").notNull(),
+  receivedAt: integer("received_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`).notNull(),
+}, (t) => [
+  uniqueIndex("pgp_inbox_mailbox_id_uidx").on(t.mailboxId, t.id),
+  index("pgp_inbox_mailbox_received_idx").on(t.mailboxId, t.receivedAt),
+]);
+
 /**
  * Shared-mailbox grant. Capability flags are resolved through the existing
  * can() (never a parallel permission path). Shaped so a nullable team scope is

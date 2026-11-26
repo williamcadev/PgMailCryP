@@ -1,19 +1,182 @@
-<div align="center">
+# PgMailCryP
 
-<img src="assets/brand/icon-tile.svg" alt="Doota" width="72" height="72">
+Messagerie en développement à partir de [Doota](https://github.com/ethercorps),
+avec une clé privée OpenPGP conservée sur l’appareil de l’utilisateur.
 
-# Doota
+**État : pilote développeur de réception, pas encore une messagerie complète
+zero-access ni une version de production.** Le domaine retenu pour le projet est
+`anonyme.here`. Aucun DNS ou service pour ce domaine n’est configuré par le code.
 
-**Your email, finally yours.**
+## Ce qui fonctionne
 
-An email app you run yourself — where every conversation reads like a chat, on
-your own address, on infrastructure only you control.
+- Génération/import de clé dans le navigateur, protection par phrase de passe,
+  sauvegarde locale chiffrée, export et verrouillage.
+- Publication de la clé publique pour une boîte personnelle autorisée ; aucune
+  clé privée n’est envoyée par l’interface.
+- Réception des nouveaux messages d’une boîte activée : MIME et pièces jointes
+  chiffrés ensemble avec la clé publique avant stockage R2, index minimal dans D1.
+- Lecture dans `/pgmailcryp`, déchiffrement et parsing MIME sur l’appareil,
+  téléchargement des pièces jointes et export `.eml`.
+- Endpoint authentifié `/ingress/stalwart` et chemin Cloudflare Email Routing.
+  Le pont entre un véritable Stalwart et cet endpoint reste à implémenter.
 
-`Coming soon · building in the open`
+Les fils, envois, brouillons, messages antérieurs et boîtes non activées gardent
+le fonctionnement Doota avec `MAIL_DEK`, une clé connue des Workers. Les nouveaux
+messages du pilote ne sont pas matérialisés dans les fils Doota ni dans son index
+FTS. Les boîtes partagées, la rotation/récupération des clés, la pagination et la
+lecture PGP/MIME imbriquée ne sont pas encore prises en charge par ce pilote.
 
-</div>
+Voir [le contrat technique, les données visibles et les tests](docs/pgmailcryp.md).
+
+## Quand peut-on installer une version de test ?
+
+**Dès maintenant pour les tests développeur automatisés depuis les sources.**
+Il n’y a pas encore de paquet installable ni de release précompilée. Une version
+avec de vrais courriels demandera un environnement isolé et une recette complète
+SMTP → stockage → navigateur, avec vérification des pannes et des tentatives.
+Aucune date de disponibilité en production n’est annoncée.
+
+### Tests sans service mail externe
+
+Prérequis : Node.js 22.18+ et pnpm à la version indiquée dans `packageManager`.
+Les commandes suivantes n’effectuent aucun déploiement :
+
+```sh
+git clone --branch codex/pgmailcryp-receive-pilot https://github.com/williamcadev/PgMailCryP.git
+cd PgMailCryP
+pnpm install --frozen-lockfile
+pnpm --filter doota gen
+pnpm --filter doota exec vitest run src/test/pgp-ingress.test.ts
+pnpm test
+```
+
+Les tests utilisent SQLite en mémoire, le vrai OpenPGP.js, des doublures R2/file,
+et un jeu de messages synthétiques. Ils ne prouvent pas une livraison SMTP réelle.
+
+### Application et courriels réels : préparation du pilote
+
+1. Prévoir un compte et des ressources Cloudflare **réservés au test**. Les
+   fichiers Wrangler contiennent encore les noms, identifiants et domaines Doota
+   hérités : les remplacer par les valeurs du test avant tout démarrage connecté.
+   `apps/web/wrangler.jsonc` contient des bindings R2 et Email Sender avec
+   `remote: true` : le mode développement actuel n’est pas entièrement hors ligne.
+2. Copier les trois `.dev.vars.example` vers `.dev.vars` dans `apps/web`,
+   `apps/mail-in` et `apps/mail-jobs`, puis renseigner les secrets localement.
+   Les véritables valeurs ne doivent jamais être commitées.
+3. Appliquer les migrations locales avec `pnpm db:migrate:local`, puis lancer
+   `pnpm dev`. Prévoir un compte membre disposant d’une boîte personnelle active ;
+   créer un administrateur ne crée pas à lui seul la boîte de test nécessaire.
+4. Ouvrir `/pgmailcryp`, générer/importer la clé, exporter une sauvegarde de la
+   clé privée chiffrée et activer explicitement la boîte choisie.
+5. Pour recevoir du vrai SMTP : raccorder ultérieurement Email Routing ou un pont
+   Stalwart à une instance de test. Valider les livraisons, pièces jointes,
+   refus d’accès, coupures R2/D1 et nouvelles tentatives avant d’utiliser une
+   adresse importante. Le raccordement et le déploiement restent à réaliser.
+
+### Machine de test prévue : Lenovo
+
+Le serveur accessible via `ssh lenovo` est la cible prévue pour les essais.
+Les sources et les tests pourront y tourner dans un environnement Node.js 22.18+
+isolé (par exemple un conteneur Node.js 24), sans remplacer le Node système ni
+modifier les services déjà présents. Stalwart et son pont pourront également y
+être hébergés une fois leur intégration préparée.
+
+L’application actuelle utilise les bindings Workers/D1/R2/KV/Queues : installer
+les sources sur Lenovo ne remplace pas ces services. Pour le pilote connecté,
+prévoir une instance Cloudflare de test ; une exécution entièrement locale
+nécessite encore une configuration de bindings locaux dédiée. L’interface sera
+ouverte dans le navigateur de l’utilisateur, où restera la clé privée.
+Aucune installation Lenovo ni ouverture de port n’est réalisée par ce dépôt.
+
+### Informations Cloudflare nécessaires
+
+| Information | Usage |
+| --- | --- |
+| Identifiant du compte Cloudflare | Choisir le compte qui héberge les Workers et les ressources |
+| Domaine, identifiant de zone et gestionnaire DNS de `anonyme.here` | Préparer ensuite le routage et le DNS ; ne pas supposer que Cloudflare héberge déjà la zone |
+| URL de test de l’application | Définir `ORIGINS` ; `https://mail.anonyme.here` est une possibilité, pas une adresse déjà en service |
+| Identifiants D1 et KV, nom du bucket R2, noms des files et Workers | Remplacer les bindings hérités ; les trois Workers partagent les ressources concernées |
+| Transport entrant choisi | Email Routing avec catch-all vers `mail-in`, ou Stalwart avec son pont HTTP |
+| Moyen d’envoi et adresses autorisées | L’envoi existant utilise le binding Cloudflare ; un relais SMTP externe demanderait encore un adaptateur |
+| Authentification Cloudflare locale ou token API limité | Fournir l’accès via les outils/secrets locaux, jamais dans une issue, le README ou le chat |
+
+Secrets applicatifs : `BETTER_AUTH_SECRET`, `SETUP_TOKEN` si le parcours `/setup`
+est utilisé, `MAIL_DEK` et `MAIL_SEARCH_KEY` pour les chemins Doota encore actifs.
+Les deux derniers doivent rester identiques entre les trois Workers. Selon les
+fonctions utilisées : `APP_CLOUDFLARE_ACCOUNT_ID`, `APP_CLOUDFLARE_API_TOKEN`,
+`MAIL_IN_WORKER_NAME`, `CRON_SECRET` et les clés VAPID. Les fichiers `.dev.vars.example`
+donnent les emplacements. La clé privée OpenPGP et sa phrase de passe ne sont
+jamais une configuration de serveur.
+
+### Informations Stalwart nécessaires
+
+- Version exacte et mode d’installation (Docker, binaire, autre), nom d’hôte,
+  domaine(s) et boîtes/alias que le serveur reçoit déjà.
+- État des MX et de la réception SMTP, du certificat TLS, et contraintes réseau
+  entre le serveur/pont et l’endpoint HTTPS du Worker.
+- Mécanisme d’intégration disponible dans cette version : il faut construire un
+  pont de livraison durable ; un simple webhook d’observation ne garantit pas la
+  conservation et la nouvelle tentative du courriel.
+- URL du Worker suivie de `/ingress/stalwart`, secret partagé
+  `STALWART_INGRESS_TOKEN`, plafond de taille et politique de retry/DSN.
+- Pour un futur relais sortant : hôte, port, mode TLS, identité d’authentification,
+  adresses autorisées et contraintes SPF/DKIM/DMARC. Le mot de passe ou token
+  restera dans les secrets ; l’adaptateur d’envoi n’est pas implémenté ici.
+
+Le pont transmet un destinataire SMTP par requête avec le MIME original en
+base64. Il ne considère le message livré qu’après succès ; il conserve son spool
+sur panne réseau ou 5xx. Le [contrat exact](docs/pgmailcryp.md#contrat-du-pont-stalwart)
+distingue les erreurs permanentes des erreurs réessayables. Il ne faut pas
+inventer une configuration Stalwart avant de connaître sa version et les
+possibilités effectives de livraison de cette installation.
+
+## Le serveur pourra-t-il ne plus voir le contenu SMTP ?
+
+**Oui pour le contenu si l’expéditeur le chiffre avant de l’envoyer.** Avec un
+client OpenPGP compatible et la clé publique du destinataire, le corps et les
+pièces jointes peuvent parvenir au serveur déjà chiffrés. Le serveur reçoit
+encore le SMTP et les métadonnées nécessaires : enveloppe d’expédition et de
+destination, heures, tailles, et en-têtes externes non protégés. Ne pas supposer
+que l’objet du message est masqué par tous les clients.
+
+Pour un courriel ordinaire envoyé en clair par son auteur, **le premier serveur
+SMTP qui le reçoit voit ce contenu**. Le pilote chiffre après réception : cela
+protège le stockage, sans supprimer cet accès pendant l’ingress. Déplacer le
+chiffrement vers Stalwart pourrait cacher le clair aux Workers, mais Stalwart le
+verrait encore. Le chiffrement au repos de Stalwart avec une clé publique relève
+également de ce deuxième cas. TLS protège la liaison ; il ne cache pas le message
+au serveur qui termine cette liaison.
+
+Le lecteur actuel déchiffre notre enveloppe de stockage puis parse le MIME.
+Un courriel déjà chiffré en PGP/MIME peut donc rester chiffré à l’intérieur :
+**le second déchiffrement PGP/MIME et l’envoi OpenPGP doivent encore être ajoutés**
+pour offrir un vrai parcours de bout en bout. Les brouillons, copies envoyées,
+caches et sauvegardes devront aussi être couverts avant une garantie globale.
+
+Références : [OpenPGP/MIME, RFC 3156](https://www.rfc-editor.org/rfc/rfc3156.html),
+[chiffrement Stalwart](https://www.stalw.art/docs/encryption/) et
+[chiffrement au repos Stalwart](https://www.stalw.art/docs/encryption/at-rest/).
+
+## GitHub et déploiements automatiques
+
+Le workflow hérité `.github/workflows/deploy.yml` déploie sur Cloudflare après un
+push sur **`main`**, ainsi que sur déclenchement manuel `workflow_dispatch`. Une
+fusion dans `main` peut donc déclencher un déploiement. Le push de la branche
+`codex/pgmailcryp-receive-pilot` ne correspond pas à ce déclencheur GitHub Actions.
+Un éventuel projet Cloudflare Workers Builds connecté au dépôt possède ses
+propres déclencheurs, à vérifier séparément dans le compte Cloudflare.
+
+Les noms de domaines et commandes de déploiement dans la documentation Doota
+ci-dessous décrivent le projet d’origine. Ils ne doivent pas être utilisés tels
+quels pour `anonyme.here`. La publication du code sur une branche ne constitue
+pas une installation ni une mise en production du pilote.
 
 ---
+
+## Documentation Doota héritée
+
+Les fonctions et garanties ci-dessous décrivent le fonctionnement Doota ; les
+écarts et limites propres à PgMailCryP sont précisés plus haut.
 
 ## What is Doota?
 
@@ -524,7 +687,7 @@ cp apps/mail-jobs/.dev.vars.example apps/mail-jobs/.dev.vars
 openssl rand -base64 32              # → MAIL_DEK        (back this up first — see below)
 openssl rand -base64 32              # → MAIL_SEARCH_KEY
 openssl rand -base64 32              # → BETTER_AUTH_SECRET
-node scripts/gen-vapid-keys.mjs         # → VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY
+pnpm --filter doota exec node scripts/gen-vapid-keys.mjs  # → VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY
 ```
 
 `MAIL_DEK` and `MAIL_SEARCH_KEY` must be **identical across all three Workers** —
@@ -601,9 +764,12 @@ pnpm deploy               # build + wrangler deploy
 
 ## Repository layout
 
-- `src/` — the Doota app (SvelteKit + Workers).
-- `drizzle/` — database migrations.
-- `landing/` — the standalone marketing site (its own SvelteKit project; `pnpm --dir landing dev`).
+- `apps/web/` — application SvelteKit et atelier PgMailCryP.
+- `apps/mail-in/` — Worker de réception Cloudflare et endpoint Stalwart.
+- `apps/mail-jobs/` — Worker des envois et tâches différées Doota.
+- `packages/db/` et `packages/mail-core/` — schéma et pipeline mail partagés.
+- `drizzle/` — migrations et snapshots.
+- `apps/landing/` et `apps/docs/` — site et documentation Doota hérités.
 
 ## Useful scripts
 
@@ -612,8 +778,8 @@ pnpm deploy               # build + wrangler deploy
 | `pnpm check`       | auth-boundary check + `svelte-check`      |
 | `pnpm test`        | run the Vitest suite                      |
 | `pnpm db:studio`   | open Drizzle Studio                       |
-| `pnpm auth:schema` | regenerate the better-auth Drizzle schema |
-| `pnpm gen`         | regenerate Cloudflare binding types       |
+| `pnpm --filter doota auth:schema` | regenerate the better-auth Drizzle schema |
+| `pnpm --filter doota gen` | regenerate Cloudflare binding types       |
 
 ## Status
 

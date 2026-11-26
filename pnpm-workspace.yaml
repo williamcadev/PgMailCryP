@@ -1,11 +1,3 @@
-onlyBuiltDependencies:
-  - esbuild
-  - workerd
-  - sharp
-  - '@tailwindcss/oxide'
-  - '@better-auth/root'
-  # memlab (client memory-leak testing) — lets Puppeteer fetch its Chromium.
-  - puppeteer
 packages:
   - 'apps/*'
   # docs is standalone (own lockfile + workspace file) — excluding it keeps its
