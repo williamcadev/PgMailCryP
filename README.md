@@ -1,629 +1,135 @@
-<div align="center">
+# PgMailCryP
 
-<img src="assets/brand/icon-tile.svg" alt="Doota" width="72" height="72">
+**Messagerie OpenPGP où la clé privée reste sur l’appareil de l’utilisateur.**
 
-# Doota
+PgMailCryP est un fork en développement de Doota. Le projet conserve sa base
+SvelteKit et ses services mail, mais remplace progressivement le chiffrement
+connu du serveur par du chiffrement et du déchiffrement dans le navigateur.
+Le domaine du projet est **`anonyme.here`**, dont le DNS est géré par Cloudflare.
 
-**Your email, finally yours.**
+> **État : développement et tests, pas encore une version de production.**
+> Le pilote publié se trouve sur la branche
+> [`codex/pgmailcryp-receive-pilot`](https://github.com/williamcadev/PgMailCryP/tree/codex/pgmailcryp-receive-pilot).
+> `main` contient encore les fondations. Le parcours complet d’envoi et
+> l’installation groupée avec Stalwart sont en cours de finalisation.
 
-An email app you run yourself — where every conversation reads like a chat, on
-your own address, on infrastructure only you control.
+## Ce qui change par rapport à Doota
 
-`Coming soon · building in the open`
+Doota chiffre les messages au repos avec `MAIL_DEK`, un secret disponible dans
+les Workers. Ce mécanisme protège des copies de stockage, mais le serveur peut
+encore déchiffrer les données : il ne suffit pas pour l’objectif PgMailCryP.
 
-</div>
+Le pilote publié ajoute :
 
----
+- génération et import de clés OpenPGP dans le navigateur ;
+- protection de la clé privée par une phrase de passe et sauvegarde locale
+  chiffrée, avec export de secours ;
+- publication de la clé publique d’une boîte personnelle autorisée ;
+- réception séparée : MIME et pièces jointes sont chiffrés avec cette clé
+  publique avant stockage, sans copie de contenu dans l’index de recherche ;
+- lecture et déchiffrement sur l’appareil, téléchargement des pièces jointes et
+  export du message ;
+- endpoint Stalwart authentifié, validation des entrées et erreurs permettant
+  les nouvelles tentatives de livraison.
 
-## What is Doota?
+Les boîtes partagées sont exclues de ce pilote : elles nécessitent une gestion
+multi-clés. Les anciens messages et les chemins Doota non remplacés restent
+soumis aux garanties Doota.
 
-Doota (say _DOO-tah_ — it means **messenger**) is a self-hosted email app that
-runs entirely on your own [Cloudflare](https://cloudflare.com) account. No mail
-server to babysit, no company sitting in the middle of your inbox. Mail arrives
-through Cloudflare Email Routing, gets threaded into a WhatsApp-style
-conversation, and is stored **encrypted at rest** — the raw message,
-attachments, sent mail, and the derived render cache are all encrypted, with the
-raw message kept whole as the source of truth.
+## Parcours complet en cours de finalisation
 
-**Two deliberate exceptions**, both worth knowing before you trust the claim:
+Le prochain jalon relie les étapes suivantes :
 
-**1 — a readable search index.** To provide fast full-text search, Doota keeps
-the subjects and body text of your mail in a readable index. A database dump
-could therefore recover the words in your mail this way (not formatting, not
-attachments). This is the Fastmail posture — a reasonable trade for a
-self-hosted tool where the operator already has legitimate access to their own
-box. Set a mailbox to non-indexed to exclude it from search and the index
-entirely.
+1. Composer et signer sur l’appareil ; chiffrer l’objet, le corps et les pièces
+   jointes avant toute transmission au serveur.
+2. Conserver les brouillons chiffrés, sans corps ni noms de pièces jointes
+   lisibles dans les sauvegardes de composition.
+3. Envoyer le MIME OpenPGP via un transport SMTP, avec états et tentatives
+   durables par destinataire.
+4. Recevoir le courriel, stocker sa copie chiffrée, puis déchiffrer les couches
+   PGP/MIME et vérifier la signature dans le navigateur.
+5. Lire la copie envoyée, répondre et transférer par le même parcours chiffré.
 
-**2 — attachments on an open draft.** A file you attach while composing is
-stored unencrypted until that draft is sent or discarded. It is transient: it is
-encrypted the moment the message goes to the outbound queue, and deleted when
-the draft is closed. Everything already sent or received is encrypted.
+Ce jalon n’est pas encore publié comme une release installable. Il ne faut pas
+confondre les fonctions présentes sur la branche du pilote avec celles qui
+sont encore en cours de validation.
 
-It still speaks plain email underneath, so you can write to anyone on Gmail or
-Outlook, and they can write back.
+## Installation groupée : PgMailCryP + Stalwart
 
-## Preview
+**Stalwart doit être installé avec le serveur PgMailCryP et préconfiguré pour
+communiquer avec lui.** Le pont SMTP fait partie de cet ensemble ; son raccordement
+ne doit pas être une étape laissée à deviner après l’installation.
 
-<div align="center">
+La machine de test retenue est **Lenovo**, accessible par `ssh lenovo`. La cible
+prévue regroupe l’application, Stalwart, le pont authentifié, les secrets de
+communication générés localement et un test de livraison.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="apps/docs/public/media/thread-dark.png">
-  <img src="apps/docs/public/media/thread-light.png" alt="Threaded conversation view" width="860">
-</picture>
+La base Doota utilise actuellement Workers, D1, R2, KV et Queues. Elle ne devient
+pas une application Linux autonome par une simple copie des sources. La
+préparation d’un environnement local isolé pour Lenovo est en cours. Aucun MX
+ni autre DNS d’`anonyme.here` n’est modifié par ces travaux.
 
-<p><em>Every conversation as one chat-style timeline. Light or dark, following your system.</em></p>
+### Tester le pilote publié maintenant
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <picture><source media="(prefers-color-scheme: dark)" srcset="apps/docs/public/media/composer-dark.png"><img src="apps/docs/public/media/composer-light.png" alt="Composer"></picture>
-      <br><strong>Composer</strong> — rich text, scheduled send, undo.
-    </td>
-    <td width="50%" valign="top">
-      <picture><source media="(prefers-color-scheme: dark)" srcset="apps/docs/public/media/thread-mobile-dark.png"><img src="apps/docs/public/media/thread-mobile-light.png" alt="Conversation on a phone"></picture>
-      <br><strong>On a phone</strong> — the same app, re-shaped.
-    </td>
-  </tr>
-</table>
-
-<p><a href="docs/screenshots.md"><strong>More screenshots →</strong></a><br>
-<sub>Phone, tablet, 13&#8221; laptop and desktop, light and dark.</sub></p>
-
-</div>
-
-## Features
-
-- **Threads, not folders** — every conversation is one simple timeline of
-  messages, interoperable with any mail client.
-- **Runs on your own account** — Cloudflare Workers, D1, R2, KV, and Queues do
-  the work. One deployment, one operator.
-- **Private by default** — subjects, bodies, attachments, sent mail, and the
-  derived render cache are all encrypted at rest; only routing metadata stays
-  cleartext so threading works without decryption. Two documented exceptions:
-  the readable search index, and attachments on a draft you haven't sent yet.
-- **Undo & scheduled send** — a first-class submission object tracks every
-  message (queued → sent → delivered → bounced), with delivery ticks and
-  send-later.
-- **Hide-my-email aliases** — generate throwaway addresses on your domain, map
-  them to a mailbox, disable them anytime.
-- **Passwords or passkeys** — WebAuthn sign-in out of the box.
-- **Open source, end to end** — read it, run it, change it. No subscriptions,
-  no per-seat pricing, no lock-in.
-
-## Tech stack
-
-| Layer    | Choice                                                                    |
-| -------- | ------------------------------------------------------------------------- |
-| Frontend | [SvelteKit](https://svelte.dev) + [Tailwind CSS](https://tailwindcss.com) |
-| Runtime  | Cloudflare Workers (`@sveltejs/adapter-cloudflare`)                        |
-| Storage  | D1 (SQLite) · R2 (raw messages) · KV (cache) · Queues (mail-out)           |
-| Mail     | Cloudflare Email Routing (inbound) + provider seam (outbound)             |
-| Auth     | [better-auth](https://better-auth.com) with passkeys                      |
-| Data     | [Drizzle ORM](https://orm.drizzle.team) + drizzle-kit migrations          |
-
-## Architecture
-
-Diagrams below are generated from the code — the D1 schemas in
-`packages/db/src/*.schema.ts` and each worker's `wrangler.jsonc`. The full set
-(binding matrix + `@doota/mail-core` module map) lives in
-[`docs/architecture-diagrams.md`](docs/architecture-diagrams.md).
-
-### Component & deployment — services, bindings, pipeline
-
-Five deployed Workers, two shared packages, one D1 / R2 / KV / Durable-Object
-backbone. A queue binds to exactly **one** consumer Worker, so the app only
-_produces_; the async handlers live in the two mail Workers.
-
-```mermaid
-flowchart TB
-    subgraph client["Client"]
-        browser["Browser · SvelteKit UI<br/>(mail, admin, onboarding)"]
-        extapp["External app / agent<br/>(Bearer API key)"]
-    end
-
-    subgraph cf["Cloudflare Edge"]
-        routing["Email Routing<br/>(inbound MX)"]
-        sending["Email Sending<br/>(EMAIL_SENDER binding)"]
-    end
-
-    subgraph workers["Workers (deployed)"]
-        web["doota · apps/web<br/>SvelteKit + Better Auth<br/>remote fns · PRODUCES to queues"]
-        mailin["doota-mail-inbound · apps/mail-in<br/>email() handler + inbound consumer"]
-        mailjobs["doota-mail-jobs · apps/mail-jobs<br/>outbound consumer · events consumer · cron"]
-        landing["doota-landing"]
-        docs["docs"]
-    end
-
-    subgraph pkgs["Shared packages"]
-        db["@doota/db<br/>drizzle schema (auth+mail)"]
-        core["@doota/mail-core<br/>inbound · outbound · threading<br/>crypto · events · drafts · search"]
-    end
-
-    subgraph storage["Storage & state"]
-        d1[("D1 · DB")]
-        r2[("R2 · MAIL_RAW<br/>raw RFC5322 + attachments + drafts")]
-        kv[("KV · AUTH_KV<br/>session read-cache")]
-        hub{{"Durable Object<br/>MailEventHub · live ticks"}}
-    end
-
-    subgraph queues["Cloudflare Queues"]
-        qin[["doota-mail-inbound"]]
-        qout[["doota-mail-outbound"]]
-        qev[["doota-mail-events"]]
-    end
-
-    browser -->|HTTPS / WS| web
-    extapp -->|POST send · Bearer| web
-
-    routing -->|"email()"| mailin
-    mailin -->|enqueue raw| qin
-    qin -->|consume| mailin
-    mailin -->|store raw| r2
-    mailin -->|dedupe · fan-out · thread| d1
-    mailin -->|notify| hub
-
-    web -->|enqueue send| qout
-    qout -->|consume| mailjobs
-    mailjobs -->|send| sending
-    mailjobs -->|status rollup| d1
-    mailjobs -->|copy outbound blob| r2
-    mailjobs -->|retry re-enqueue| qout
-    mailjobs -->|live tick| hub
-
-    sending -->|delivery/bounce events| qev
-    qev -->|consume| mailjobs
-    mailjobs -.->|"cron 5-min: scheduled sends · GC"| qout
-
-    hub -->|WebSocket ticks| web
-    web -.->|read/write| d1
-    web -.->|blobs| r2
-    web -.->|auth cache| kv
-    web -->|transactional mail| sending
-
-    web --- core
-    mailin --- core
-    mailjobs --- core
-    core --- db
-    web --- db
-```
-
-| Worker | D1 `DB` | R2 `MAIL_RAW` | KV `AUTH_KV` | DO `MAIL_EVENTS` | `EMAIL_SENDER` | Queues |
-| --- | :-: | :-: | :-: | :-: | :-: | --- |
-| **doota** (web) | ✓ | ✓ | ✓ | ✓ | ✓ | produces `inbound`, `outbound` |
-| **doota-mail-inbound** | ✓ | ✓ | — | ✓ | — | produces+consumes `inbound` |
-| **doota-mail-jobs** | ✓ | ✓ | — | ✓ | ✓ | consumes `outbound`+`events`, produces `outbound`; cron |
-| **doota-landing** | — | — | — | — | — | — |
-| **docs** | — | — | — | — | — | — |
-
-### ER diagram — data model (Cloudflare D1)
-
-Two namespaces share one D1 database: **auth.\*** (Better Auth) and **mail.\***
-(app owned). The load-bearing split — `message` is one immutable row per unique
-email, `delivery` is the per-mailbox receipt, `thread_state` is per-mailbox
-triage, `submission` is send state. Content columns (`*_enc`) are encrypted;
-routing + threading metadata stays cleartext.
-
-```mermaid
-erDiagram
-    user {
-        text id PK
-        text email UK
-        text role "member|admin|superadmin"
-        bool twoFactorEnabled
-        int  onboardedAt
-        text invitedByUserId FK "→ user"
-    }
-    session {
-        text id PK
-        text userId FK
-        text activeOrganizationId
-    }
-    account {
-        text id PK
-        text userId FK
-        text providerId
-    }
-    organization {
-        text id PK
-        text slug UK
-        text domain UK
-        text zoneId
-        text status
-    }
-    member {
-        text id PK
-        text organizationId FK
-        text userId FK
-        text role
-    }
-    invitation {
-        text id PK
-        text organizationId FK
-        text inviterId FK
-        text email
-    }
-    twoFactor {
-        text id PK
-        text userId FK
-    }
-    passkey {
-        text id PK
-        text userId FK
-    }
-
-    orgMailSettings {
-        text orgId PK
-        bool subaddressingEnabled
-        text returnPathDomain
-    }
-    mailbox {
-        text id PK
-        text orgId FK
-        text address "org+address UK"
-        bool isPersonal
-        bool isService
-    }
-    mailboxAccess {
-        text id PK
-        text userId FK
-        text mailboxId FK
-        bool canSend
-    }
-    alias {
-        text id PK
-        text orgId FK
-        text mailboxId FK
-        text address
-    }
-    thread {
-        text id PK
-        text orgId FK
-        int  lastMessageAt
-    }
-    message {
-        text id PK
-        text orgId FK
-        text threadId FK
-        text messageIdHeader "org+msgid UK"
-        text fromAddr
-        text r2RawKey
-        text bodyFullEnc
-        text bodyHtmlEnc
-    }
-    delivery {
-        text id PK
-        text orgId FK
-        text messageId FK
-        text mailboxId FK
-        text viaAliasId FK
-        text role "to|cc|bcc|from"
-        bool isRead
-    }
-    threadState {
-        text id PK
-        text threadId FK
-        text mailboxId FK
-        text assigneeUserId FK
-        text placement "inbox|archived|spam|trash|sent"
-        bool isStarred
-    }
-    threadRead {
-        text id PK
-        text userId FK
-        text threadId FK
-        text mailboxId FK
-    }
-    label {
-        text id PK
-        text orgId FK
-        text name
-    }
-    threadLabel {
-        text id PK
-        text threadId FK
-        text mailboxId FK
-        text labelId FK
-    }
-    attachment {
-        text id PK
-        text messageId FK
-        text r2Key
-    }
-    internalNote {
-        text id PK
-        text threadId FK
-        text mailboxId FK
-        text authorUserId FK
-    }
-    systemEvent {
-        text id PK
-        text threadId FK
-        text mailboxId FK
-        text actorUserId FK
-    }
-    draft {
-        text id PK
-        text orgId FK
-        text mailboxId FK
-        text createdByUserId FK
-        text threadId FK
-        text fromAliasId FK
-        text kind "new|reply|reply_all|forward"
-        text status "editing|sending|sent"
-        text submissionId
-    }
-    submission {
-        text id PK
-        text orgId FK
-        text messageId FK
-        text mailboxId FK
-        text fromAliasId FK
-        text createdByUserId FK
-        text idempotencyKey UK
-        text status "queued|sending|…|delivered|bounced"
-        int  undoUntil
-    }
-    submissionRecipient {
-        text id PK
-        text submissionId FK
-        text address
-        text role
-        text status
-    }
-    suppression {
-        text id PK
-        text orgId FK
-        text address
-        text reason
-    }
-    sendCounter {
-        text id PK
-        text scope
-        text scopeKey
-    }
-    apiKey {
-        text id PK
-        text orgId FK
-        text userId FK
-        text mailboxId FK
-        text keyHash UK
-    }
-
-    user ||--o{ session : has
-    user ||--o{ account : has
-    user ||--o{ member : "belongs via"
-    user ||--o{ twoFactor : has
-    user ||--o{ passkey : has
-    user ||--o{ invitation : sends
-    user |o--o{ user : invited
-    organization ||--o{ member : has
-    organization ||--o{ invitation : has
-
-    organization ||--|| orgMailSettings : configures
-    organization ||--o{ mailbox : owns
-    organization ||--o{ alias : owns
-    organization ||--o{ thread : owns
-    organization ||--o{ message : owns
-    organization ||--o{ label : owns
-    organization ||--o{ suppression : owns
-    organization ||--o{ apiKey : owns
-
-    mailbox ||--o{ mailboxAccess : "granted to users"
-    user    ||--o{ mailboxAccess : granted
-    mailbox ||--o{ alias : "forwards from"
-    mailbox ||--o{ delivery : receives
-    mailbox ||--o{ threadState : triages
-    mailbox ||--o{ draft : "composed in"
-    mailbox ||--o{ submission : "sends from"
-    mailbox ||--o{ apiKey : "sends as"
-
-    thread  ||--o{ message : contains
-    thread  ||--o{ threadState : "per mailbox"
-    thread  ||--o{ threadRead : "read cursors"
-    thread  ||--o{ threadLabel : tagged
-    thread  ||--o{ internalNote : notes
-    thread  ||--o{ systemEvent : events
-    message ||--o{ delivery : "fans out to"
-    message ||--o{ attachment : has
-    alias   ||--o{ delivery : "received via"
-    label   ||--o{ threadLabel : applied
-
-    message ||--o{ submission : "sent as"
-    submission ||--o{ submissionRecipient : "fans out to"
-    user ||--o{ draft : owns
-    user ||--o{ submission : sent
-```
-
-### Mail pipeline — sequence
-
-Inbound (receive):
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant CF as CF Email Routing
-    participant IN as doota-mail-inbound
-    participant Q as inbound queue
-    participant R2 as R2 MAIL_RAW
-    participant D1 as D1 DB
-    participant HUB as MailEventHub (DO)
-    participant WEB as doota (web)
-
-    CF->>IN: email() — raw RFC5322
-    IN->>R2: put raw blob
-    IN->>Q: enqueue {r2Key, meta}
-    Q->>IN: consume
-    IN->>IN: parse · resolve org/mailbox · DSN? → bounce
-    IN->>D1: upsert message (dedupe org+msgid)
-    IN->>D1: thread match/create · fan-out delivery rows
-    IN->>HUB: notify new mail
-    HUB-->>WEB: live tick (WebSocket)
-```
-
-Outbound (send + undo + provider events):
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant WEB as doota (web)
-    participant D1 as D1 DB
-    participant Q as outbound queue
-    participant JOBS as doota-mail-jobs
-    participant SEND as CF Email Sending
-    participant EV as events queue
-    participant HUB as MailEventHub (DO)
-
-    WEB->>D1: build message + submission(queued, idempotencyKey)
-    WEB->>Q: enqueue send (AFTER row written)
-    Note over WEB,Q: undo window — submission.undoUntil is source of truth
-    Q->>JOBS: consume (after undo delay)
-    JOBS->>D1: claim CAS (queued→sending, stamp lastAttemptAt)
-    JOBS->>D1: check suppression · charge send_counter
-    JOBS->>SEND: transmit (chunk ≤50 recipients)
-    JOBS->>D1: rollup submission + recipient status
-    JOBS->>HUB: live send-state tick
-    SEND-->>EV: delivery / bounce / complaint events
-    EV->>JOBS: consume
-    JOBS->>D1: update recipient status · suppress hard bounces
-    JOBS->>HUB: tick (delivered / failed)
-    HUB-->>WEB: live status to composer/thread
-```
-
-## Getting started
-
-Requires Node 22+, [pnpm](https://pnpm.io), and a Cloudflare account.
-
-### 1. Create the Cloudflare resources
-
-`wrangler deploy` reconciles *bindings*, but it never creates the things they
-point at — and the `MAIL_RAW` bucket is bound with `"remote": true`, so **even
-local dev talks to the real bucket**. Create these first or `pnpm dev` won't
-boot:
+Prérequis : Node.js 22.18+ et pnpm à la version indiquée par `packageManager` sur
+la branche du pilote.
 
 ```sh
-wrangler d1 create doota                  # id → database_id in all three wrangler.jsonc
-wrangler r2 bucket create doota-mail-raw
-wrangler kv namespace create AUTH_KV      # id → web + mail-in
-wrangler queues create doota-mail-inbound
-wrangler queues create doota-mail-outbound
-wrangler queues create doota-mail-events
+git clone --branch codex/pgmailcryp-receive-pilot https://github.com/williamcadev/PgMailCryP.git
+cd PgMailCryP
+pnpm install --frozen-lockfile
+pnpm --filter doota gen
+pnpm --filter doota exec vitest run src/test/pgp-ingress.test.ts
+pnpm test
 ```
 
-### 2. Configure secrets
+Ces tests utilisent SQLite en mémoire et des doublures de stockage et de file.
+Ils ne constituent pas à eux seuls une installation SMTP réelle. Pour le détail
+du pilote, consulter [sa documentation sur la branche correspondante](https://github.com/williamcadev/PgMailCryP/blob/codex/pgmailcryp-receive-pilot/docs/pgmailcryp.md).
 
-Local dev reads each Worker's `.dev.vars` — **not** `.env`, which only exists
-for drizzle-kit. Copy the templates and fill them in:
+## Ce que le serveur peut encore voir
 
-```sh
-pnpm install
-cp apps/web/.dev.vars.example       apps/web/.dev.vars
-cp apps/mail-in/.dev.vars.example   apps/mail-in/.dev.vars
-cp apps/mail-jobs/.dev.vars.example apps/mail-jobs/.dev.vars
+**Courriel ordinaire :** si l’auteur l’envoie sans chiffrement OpenPGP, le premier
+serveur SMTP reçoit son contenu lisible. Le chiffrer après réception protège le
+stockage mais ne supprime pas cet accès pendant l’ingress. TLS protège la liaison,
+pas contre le serveur qui la termine.
 
-openssl rand -base64 32              # → MAIL_DEK        (back this up first — see below)
-openssl rand -base64 32              # → MAIL_SEARCH_KEY
-openssl rand -base64 32              # → BETTER_AUTH_SECRET
-node scripts/gen-vapid-keys.mjs         # → VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY
-```
+**Courriel chiffré avant envoi :** le corps et les pièces jointes peuvent rester
+illisibles aux serveurs SMTP. L’enveloppe d’expédition et de destination, la
+taille, les horaires et certains en-têtes externes restent visibles. L’objet ne
+doit pas être supposé protégé avec tous les clients externes.
 
-`MAIL_DEK` and `MAIL_SEARCH_KEY` must be **identical across all three Workers** —
-they read and write the same encrypted rows. A mismatch isn't a startup error; it
-shows up later as unreadable mail.
+Déplacer le chiffrement de réception vers Stalwart pourrait cacher le clair aux
+Workers, mais Stalwart le verrait encore. **Aucune garantie zero-access globale
+n’est annoncée** tant que réception, stockage, lecture, pièces jointes,
+brouillons, copies envoyées et caches ne sont pas tous couverts et vérifiés.
+Le code du navigateur fourni par le serveur reste également un élément de
+confiance ; les empreintes des clés doivent être comparées indépendamment.
 
-### 3. Run it
+## Informations d’exploitation nécessaires
 
-```sh
-pnpm db:migrate:local     # apply D1 migrations to the local database
-pnpm dev                  # http://localhost:5173
-pnpm --filter doota reset-admin   # create the first admin (genesis) — email-free, enrolls TOTP
-```
+- **Connues :** domaine `anonyme.here`, DNS Cloudflare, serveur de test Lenovo.
+- **Cloudflare :** compte et zone cibles, URL de l’application et ressources
+  réservées aux tests ; authentification via les outils ou secrets locaux.
+- **Stalwart :** version et image verrouillées par l’installation, routage SMTP
+  vers le pont PgMailCryP, acquittements et nouvelles tentatives conservés.
+- **Envoi externe éventuel :** fournisseur du relais, hôte, port, TLS et adresses
+  autorisées. Le raccordement dépendra du transport retenu.
 
-`ORIGINS` must include the port you actually serve on, or every `/api/auth/*`
-route 404s.
+Ne jamais commiter de token Cloudflare, de mot de passe SMTP, de clé privée
+OpenPGP ou de phrase de passe. La clé privée OpenPGP n’est pas un secret à
+installer sur le serveur.
 
-Mail delivery needs more: an Email Routing catch-all pointing at your deployed
-`mail-in` Worker, and DKIM on the sending domain. Neither is expressible in
-`wrangler.jsonc` — see [`docs/pre-release.md`](docs/pre-release.md) §0.5 for the
-full provisioning list.
+## GitHub et déploiements
 
-### Environment
+Le workflow Doota hérité peut déployer Cloudflare après un push sur `main`, ou
+sur déclenchement manuel. La publication de documentation n’est pas une
+installation du pilote. Les déclencheurs Cloudflare Workers Builds éventuels
+se vérifient séparément dans le compte Cloudflare.
 
-See `apps/web/.dev.vars.example` for the full list — that is the file local
-dev reads. (`.env` is drizzle-kit only.) The essentials:
+## Origine et licence
 
-- `ORIGINS` — comma-separated allowed origins; the first is canonical. Must
-  include the port you actually serve on, or auth routes 404.
-- `BETTER_AUTH_SECRET` — 32+ chars, high entropy.
-- `MAIL_DEK` — the 32-byte (base64) data-encryption key for all mail content.
-  Set as a Worker **secret** on `web`, `mail-in`, and `mail-jobs` — the same
-  value on all three. See the warning below.
-- `MAIL_SEARCH_KEY` — HMAC key for blind **note** search tokens and signed
-  image/resource tokens. (Message search is a plaintext FTS5 index and does not
-  use this key.) Also a secret on all three Workers.
-
-> [!CAUTION]
-> **Back up `MAIL_DEK` before you store a single message — losing it is permanent
-> and total data loss.**
->
-> Every message, attachment, and sent copy is encrypted with `MAIL_DEK`. There is
-> **no plaintext path** to your mail and **no recovery**: no support reset, no
-> partial reconstruction, no backdoor. If the Worker secret is ever lost, rotated
-> without the old value, or overwritten, **every message you have ever received
-> becomes permanently unreadable.**
->
-> Generate it once, store the base64 value in a password manager / secrets vault
-> **outside Cloudflare**, then set it as a secret on all three Workers:
->
-> ```sh
-> # generate (32 random bytes, base64) — save the output somewhere safe FIRST
-> openssl rand -base64 32
->
-> wrangler secret put MAIL_DEK            # doota (web)
-> wrangler secret put MAIL_DEK --config apps/mail-in/wrangler.jsonc
-> wrangler secret put MAIL_DEK --config apps/mail-jobs/wrangler.jsonc
-> ```
->
-> The same rule applies to `MAIL_SEARCH_KEY` (lose it and search + inline images
-> break, though mail stays readable). Treat both as unrecoverable-if-lost.
-- `APP_CLOUDFLARE_ACCOUNT_ID` / `APP_CLOUDFLARE_API_TOKEN` — a **scoped** API
-  token (not the Global API Key), stored as a Worker secret in production.
-- `MAIL_IN_WORKER_NAME` — the deployed mail-in Worker the catch-all rule targets.
-- `LOG_LEVEL` — optional mail-pipeline log level (`debug`/`info`/`warn`/`error`,
-  default `info`); set per Worker (web, mail-in, mail-jobs) as a plain var.
-
-### Deploy
-
-```sh
-pnpm db:migrate:remote    # migrate the production D1 database
-pnpm deploy               # build + wrangler deploy
-```
-
-## Repository layout
-
-- `src/` — the Doota app (SvelteKit + Workers).
-- `drizzle/` — database migrations.
-- `landing/` — the standalone marketing site (its own SvelteKit project; `pnpm --dir landing dev`).
-
-## Useful scripts
-
-| Script             | Does                                      |
-| ------------------ | ----------------------------------------- |
-| `pnpm check`       | auth-boundary check + `svelte-check`      |
-| `pnpm test`        | run the Vitest suite                      |
-| `pnpm db:studio`   | open Drizzle Studio                       |
-| `pnpm auth:schema` | regenerate the better-auth Drizzle schema |
-| `pnpm gen`         | regenerate Cloudflare binding types       |
-
-## Status
-
-Doota is under development and moving fast. Star the repo to follow along until launch.
-
-## License & credits
-
-An independent open-source project by **[Ethercorps](https://github.com/ethercorps)**.
-
-Not affiliated with, endorsed by, or sponsored by Cloudflare. Cloudflare,
-Workers, R2, and D1 are trademarks of Cloudflare, Inc.
-
-© 2026 Ethercorps
+PgMailCryP s’appuie sur Doota, projet d’Ethercorps, sous licence Apache-2.0.
+La [documentation Doota d’origine](DOOTA_UPSTREAM_README.md) est conservée
+séparément pour référence. Ses fonctions, domaines et garanties historiques
+ne décrivent pas automatiquement PgMailCryP.
