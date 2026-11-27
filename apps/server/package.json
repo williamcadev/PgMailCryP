@@ -1,0 +1,16 @@
+{
+  "name": "@pgmailcryp/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/index.mjs && node --check src/platform.mjs && node --check src/client-address.mjs && node --check src/sqlite.mjs && node --check src/objects.mjs && node --check src/kv.mjs && node --check src/queue.mjs && node build.mjs"
+  },
+  "dependencies": {
+    "@doota/db": "workspace:*",
+    "@doota/mail-core": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": { "esbuild": "0.25.12" }
+}

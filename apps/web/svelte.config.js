@@ -1,9 +1,10 @@
 import adapter from "@sveltejs/adapter-cloudflare";
+import nodeAdapter from '@sveltejs/adapter-node';
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
   kit: {
-    adapter: adapter(),
+    adapter: process.env.PGMAILCRYP_BUILD_TARGET === 'node' ? nodeAdapter({ out: 'build-node' }) : adapter(),
       experimental: {
         explicitEnvironmentVariables: true,
         remoteFunctions: true,

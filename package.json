@@ -8,7 +8,7 @@
     "dev": "pnpm --filter doota dev",
     "build": "pnpm --filter doota build",
     "check": "pnpm -r --if-present check",
-    "test": "pnpm --filter doota test",
+    "test": "pnpm --filter doota test && pnpm --filter @pgmailcryp/server build && pnpm --filter @pgmailcryp/server test",
     "leak": "pnpm --filter doota leak",
     "deploy": "pnpm --filter doota deploy",
     "deploy:mail-in": "pnpm --filter @doota/mail-in deploy",

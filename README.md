@@ -71,10 +71,14 @@ Chaque installation utilise le serveur choisi par son administrateur. L’ensemb
 regroupe l’application, Stalwart, le pont authentifié, les secrets de
 communication générés localement et un test de livraison.
 
-La base Doota utilise actuellement Workers, D1, R2, KV et Queues. Elle ne devient
-pas une application Linux autonome par une simple copie des sources. Le
-regroupement de test utilise Wrangler local dans Docker pour ces ressources,
-sans compte Cloudflare. Il ne configure ni MX ni autre DNS.
+La base Doota utilise Workers, D1, R2, KV et Queues. Les nouvelles installations
+de test utilisent désormais un serveur Node, SQLite, un stockage local des
+objets et des files persistantes dans Docker, sans compte Cloudflare. Les
+anciens pilotes conservent Wrangler local : leur conversion de données n’est
+pas encore disponible. L’installateur ne configure ni MX ni autre DNS.
+
+Les garanties et limites du backend natif sont décrites dans
+[la documentation du serveur](docs/native-server.md).
 
 ### Installer la version de test isolée
 
@@ -85,7 +89,7 @@ Le runtime conteneurisé fournit Node 24 et pnpm à la version verrouillée.
 ```sh
 git clone --branch codex/pgmailcryp-receive-pilot https://github.com/williamcadev/PgMailCryP.git
 cd PgMailCryP
-node infra/local/install.mjs --domain VOTRE_DOMAINE --state "$HOME/.pgmailcryp-test"
+node infra/server/install.mjs --domain VOTRE_DOMAINE --state "$HOME/.pgmailcryp-test"
 ```
 
 L’installateur conserve un lien privé dans `setup-url.txt`, dans son dossier

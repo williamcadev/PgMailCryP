@@ -42,6 +42,12 @@ function expireLegacySessionCookies(request: Request, response: Response): void 
 
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
   if (building) return resolve(event);
+  // The native server installs its bindings before loading SvelteKit. This is
+  // process-owned configuration, never a header or field supplied by a client.
+  if (!event.platform?.env) {
+    const native = (globalThis as unknown as Record<symbol, (() => App.Platform) | undefined>)[Symbol.for('pgmailcryp.platform')];
+    if (native) event.platform = { ...event.platform, ...native() };
+  }
 
   // The better-auth admin plugin's HTTP routes (/api/auth/admin/*: set-role,
   // impersonate-user, ban, remove, etc.) are NOT used by the app — every

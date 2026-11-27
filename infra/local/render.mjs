@@ -4,7 +4,7 @@ import { resolve, join } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
-export async function renderLocalInstall({ domain, output, port = 18787 }) {
+export async function renderLocalInstall({ domain, output, port = 18787, runtime }) {
   domain = String(domain ?? '').trim().toLowerCase();
   if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/.test(domain) || domain.includes('..')) throw new Error('Provide this installation’s domain with --domain');
   if (!Number.isInteger(port) || port < 1024 || port > 65513) throw new Error('Invalid application port');
@@ -15,6 +15,10 @@ export async function renderLocalInstall({ domain, output, port = 18787 }) {
   let previous;
   try { previous = JSON.parse(await readFile(metadataPath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
   if (previous && (previous.domain !== domain || previous.port !== port)) throw new Error('This state directory belongs to another installation; choose a different --output');
+  const installedRuntime = previous ? previous.runtime ?? 'wrangler' : undefined;
+  runtime ??= installedRuntime ?? 'node';
+  if (!['node', 'wrangler'].includes(runtime)) throw new Error('Unsupported server runtime');
+  if (installedRuntime && installedRuntime !== runtime) throw new Error('Runtime migration requires a verified data conversion; existing data retained');
   async function privateFile(name, value) { const path = join(directory, name); await writeFile(path, value, { mode: 0o600 }); await chmod(path, 0o600); }
   let secrets;
   try { secrets = JSON.parse(await readFile(join(directory, 'secrets.json'), 'utf8')); }
@@ -57,9 +61,9 @@ export async function renderLocalInstall({ domain, output, port = 18787 }) {
     services: {
       network: { image: versions.node, command: ['node', '--max-old-space-size=16', '-e', 'setInterval(() => {}, 3600000)'], restart: 'unless-stopped', init: true, mem_limit: '64m', cpus: 0.1,
         ports: [`127.0.0.1:${port}:8787`, `127.0.0.1:${port + 22}:8080`] },
-      app: { build: { context: source, dockerfile: 'infra/local/Dockerfile' }, image: `${project}:local`, network_mode: 'service:network', depends_on: ['network'], restart: 'unless-stopped', init: true, mem_limit: '2304m', cpus: 1.5,
+      app: { build: { context: source, dockerfile: runtime === 'node' ? 'infra/server/Dockerfile' : 'infra/local/Dockerfile' }, image: `${project}:local`, network_mode: 'service:network', depends_on: ['network'], restart: 'unless-stopped', init: true, mem_limit: runtime === 'node' ? '1024m' : '2304m', cpus: 1.5,
         volumes: [`${directory}:/runtime`],
-        environment: { WRANGLER_SEND_METRICS: 'false', CI: 'true' } },
+        environment: { WRANGLER_SEND_METRICS: 'false', CI: 'true', ...(runtime === 'node' ? { HOST: '0.0.0.0' } : {}) } },
       bridge: { image: `${project}:local`, command: ['node', 'apps/mail-bridge/src/index.ts'], network_mode: 'service:network', depends_on: ['network', 'app'], restart: 'unless-stopped', init: true, mem_limit: '256m',
         env_file: [`${directory}/bridge.env`], volumes: [`${directory}:/runtime`] },
       stalwart: { image: versions.stalwart, network_mode: 'service:network', depends_on: ['network', 'app'], restart: 'unless-stopped', mem_limit: '768m', cpus: 1,
@@ -68,12 +72,12 @@ export async function renderLocalInstall({ domain, output, port = 18787 }) {
     volumes: { 'stalwart-config': {}, 'stalwart-data': {} },
   };
   await privateFile('compose.json', JSON.stringify(compose, null, 2));
-  const metadata = { version: 1, domain, port, adminPort: port + 22, origin, project, mode: 'isolated-local-test' };
+  const metadata = { version: 1, domain, port, adminPort: port + 22, origin, project, mode: 'isolated-local-test', runtime };
   await privateFile('installation.json', JSON.stringify(metadata, null, 2));
   return metadata;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const args = Object.fromEntries(process.argv.slice(2).reduce((pairs, value, i, all) => { if (value.startsWith('--')) pairs.push([value.slice(2), all[i + 1]]); return pairs; }, []));
   if (!args.domain || !args.output) throw new Error('Usage: node infra/local/render.mjs --domain YOUR_DOMAIN --output STATE_DIRECTORY [--port 18787]');
-  console.log(JSON.stringify(await renderLocalInstall({ domain: args.domain, output: args.output, port: Number(args.port ?? 18787) })));
+  console.log(JSON.stringify(await renderLocalInstall({ domain: args.domain, output: args.output, port: Number(args.port ?? 18787), runtime: args.runtime })));
 }

@@ -4,17 +4,23 @@ import { readFile, writeFile, unlink, stat, chown } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { randomBytes } from 'node:crypto';
-const require = createRequire('/app/apps/web/package.json');
+import { DatabaseSync } from 'node:sqlite';
+import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+const workspace = fileURLToPath(new URL('../../', import.meta.url));
+const require = createRequire(join(workspace, 'apps/web/package.json'));
 const { hashPassword } = await import(require.resolve('better-auth/crypto'));
-const state = '/runtime';
+const state = process.env.PGMAILCRYP_STATE ?? '/runtime';
 const installation = JSON.parse(await readFile(`${state}/installation.json`, 'utf8'));
 if (installation.mode !== 'isolated-local-test') throw new Error('Test accounts require an isolated local installation');
 const credentialFile = `${state}/test-accounts.json`;
 try { await readFile(credentialFile); console.log('Test credentials already exist; no account changed.'); process.exit(0); }
 catch (error) { if (error.code !== 'ENOENT') throw error; }
 const command = ['--filter', 'doota', 'exec', 'wrangler', 'd1', 'execute', 'pgmailcryp-local', '--local', '--config', `${state}/web.json`, '--persist-to', `${state}/data`];
-const result = JSON.parse(execFileSync('pnpm', [...command, '--command', 'SELECT COUNT(*) AS count FROM user', '--json'], { cwd: '/app', encoding: 'utf8' }));
-if (result[0]?.results[0]?.count !== 0) throw new Error('Refusing to seed a nonempty installation. Existing accounts retained.');
+const native = installation.runtime === 'node' ? new DatabaseSync(`${state}/native/mail.sqlite`) : null;
+if (native) native.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000');
+const count = native ? native.prepare('SELECT COUNT(*) AS count FROM user').get().count : JSON.parse(execFileSync('pnpm', [...command, '--command', 'SELECT COUNT(*) AS count FROM user', '--json'], { cwd: workspace, encoding: 'utf8' }))[0]?.results[0]?.count;
+if (count !== 0) throw new Error('Refusing to seed a nonempty installation. Existing accounts retained.');
 const quote = (value) => `'${String(value).replaceAll("'", "''")}'`;
 const now = Date.now(), org = 'pgmailcryp-local-test';
 const accounts = await Promise.all(['alice', 'bob'].map(async (name) => {
@@ -35,7 +41,8 @@ for (const account of accounts) {
 const seedFile = `${state}/test-seed.sql`;
 await writeFile(seedFile, statements.join(';\n') + ';\n', { mode: 0o600 });
 try {
-  execFileSync('pnpm', [...command, '--file', seedFile, '--json'], { cwd: '/app', stdio: ['ignore', 'ignore', 'pipe'] });
+  if (native) { try { native.exec(`BEGIN IMMEDIATE;\n${statements.join(';\n')};\nCOMMIT;`); } catch (error) { native.exec('ROLLBACK'); throw error; } finally { native.close(); } }
+  else execFileSync('pnpm', [...command, '--file', seedFile, '--json'], { cwd: workspace, stdio: ['ignore', 'ignore', 'pipe'] });
   await writeFile(credentialFile, JSON.stringify(accounts.map(({ hash, ...account }) => account), null, 2), { mode: 0o600 });
   const owner = await stat(state);
   await chown(credentialFile, owner.uid, owner.gid);

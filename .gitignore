@@ -45,3 +45,5 @@ apps/web/static/file-viewer-runtime.iife.js
 
 # Private generated local test installations (tokens, storage and credentials).
 .pgmailcryp-local/
+apps/server/dist/
+apps/web/build-node/

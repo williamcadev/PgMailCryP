@@ -11,7 +11,7 @@ const flags = process.argv.slice(2);
 const value = (name) => { const index = flags.indexOf(name); return index < 0 ? undefined : flags[index + 1]; };
 if (!value('--domain')) throw new Error('Usage: node infra/local/install.mjs --domain YOUR_DOMAIN [--state DIRECTORY] [--port 18787]');
 const state = resolve(value('--state') ?? '.pgmailcryp-local');
-const installation = await renderLocalInstall({ domain: value('--domain'), output: state, port: Number(value('--port') ?? 18787) });
+const installation = await renderLocalInstall({ domain: value('--domain'), output: state, port: Number(value('--port') ?? 18787), runtime: value('--runtime') });
 const base = ['compose', '-f', join(state, 'compose.json')];
 async function docker(args, extra = []) {
   await new Promise((accept, reject) => {

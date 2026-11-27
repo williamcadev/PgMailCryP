@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { renderLocalInstall } from './render.mjs';
@@ -32,5 +32,23 @@ test('isolated installs require their own domain and retain stable private secre
       const config = JSON.parse(await readFile(join(output, `${worker}.json`), 'utf8'));
       assert.ok(!JSON.stringify(config).includes('"remote":true'));
     }
+  } finally { await rm(output, { recursive: true, force: true }); }
+});
+
+test('fresh installs select native SQLite; existing pilot state cannot switch runtimes implicitly', async () => {
+  const output = await mkdtemp(join(tmpdir(), 'pgmailcryp-runtime-'));
+  try {
+    const fresh = await renderLocalInstall({ output, domain: 'example.net' });
+    assert.equal(fresh.runtime, 'node');
+    assert.equal(JSON.parse(await readFile(join(output, 'compose.json'), 'utf8')).services.app.build.dockerfile, 'infra/server/Dockerfile');
+    await assert.rejects(renderLocalInstall({ output, domain: 'example.net', runtime: 'wrangler' }), /migration/);
+    const legacy = join(output, 'legacy');
+    await renderLocalInstall({ output: legacy, domain: 'example.net', runtime: 'wrangler' });
+    const path = join(legacy, 'installation.json');
+    const metadata = JSON.parse(await readFile(path, 'utf8')); delete metadata.runtime;
+    await writeFile(path, JSON.stringify(metadata));
+    assert.equal((await renderLocalInstall({ output: legacy, domain: 'example.net' })).runtime, 'wrangler');
+    await assert.rejects(renderLocalInstall({ output: legacy, domain: 'example.net', runtime: 'node' }), /migration/);
+    assert.equal(JSON.parse(await readFile(path, 'utf8')).runtime, 'wrangler');
   } finally { await rm(output, { recursive: true, force: true }); }
 });

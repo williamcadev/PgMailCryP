@@ -12,3 +12,5 @@
 .pgmailcryp-local
 apps/web/static/file-viewer
 apps/web/static/file-viewer-runtime.iife.js
+apps/web/build-node
+apps/server/dist
