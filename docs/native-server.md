@@ -29,7 +29,10 @@ d’un ancien pilote sans conversion explicite et vérifiée.
 
 - Installation isolée : HTTP sur une adresse locale, aucun SMTP public ni DNS
   configuré, destinataires limités au domaine de test.
-- Sauvegarde/restauration complète et migration depuis Wrangler à terminer.
+- Sauvegarde/restauration groupée disponible : voir
+  [la procédure de récupération](backup-restore.md). Les images Docker doivent
+  être conservées séparément pour une reprise sur une autre machine.
+- Migration depuis Wrangler à terminer.
 - Envoi des notifications transactionnelles du backend natif à raccorder ;
   une erreur explicite empêche le repli historique qui journalise les messages.
 - Anciennes versions d’objets conservées : collecte des fichiers inutilisés,

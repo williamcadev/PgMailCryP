@@ -80,6 +80,10 @@ pas encore disponible. L’installateur ne configure ni MX ni autre DNS.
 Les garanties et limites du backend natif sont décrites dans
 [la documentation du serveur](docs/native-server.md).
 
+Les outils de [sauvegarde chiffrée, restauration et mise à jour](docs/backup-restore.md)
+couvrent l’application, le pont et les données Stalwart. Les clés privées
+OpenPGP restent à sauvegarder séparément sur les appareils.
+
 ### Installer la version de test isolée
 
 Prérequis : Linux, Docker Engine + Compose, Node.js 20.19+ pour l’installateur,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0
-import { mkdir, readFile, writeFile, chmod } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, chmod, access } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { randomBytes, createHash } from 'node:crypto';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -11,6 +11,8 @@ export async function renderLocalInstall({ domain, output, port = 18787, runtime
   const directory = resolve(output);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
+  const locked = await access(join(directory, '.maintenance-lock')).then(() => true, (error) => { if (error.code === 'ENOENT') return false; throw error; });
+  if (locked) throw new Error('Installation maintenance is in progress; existing configuration retained');
   const metadataPath = join(directory, 'installation.json');
   let previous;
   try { previous = JSON.parse(await readFile(metadataPath, 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }

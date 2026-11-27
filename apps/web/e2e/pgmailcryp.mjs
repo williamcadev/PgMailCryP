@@ -93,6 +93,16 @@ try {
   }
   const [alice, bob] = pages;
   const readCount = (page) => page.evaluate(() => [...document.querySelectorAll('button')].filter((button) => button.textContent.trim() === 'Lire sur cet appareil').length);
+  if (process.env.PGP_TEST_EXISTING_MESSAGES === '1') {
+    for (const page of pages) {
+      await button(page, 'Actualiser la réception');
+      assert.ok(await readCount(page), 'restored inbox contains previously delivered mail');
+      await button(page, 'Lire sur cet appareil');
+      await visible(page, 'Signature vérifiée avec la clé comparée');
+      assert.ok(await page.evaluate(() => [...document.querySelectorAll('main section h2')].some((heading) => /PGP_BROWSER_\d+/.test(heading.textContent))), 'previously stored subject decrypts on the original device');
+      await noError(page);
+    }
+  }
   async function receive(page, expectedSubject) {
     await page.bringToFront();
     for (let attempt = 0; attempt < 60; attempt++) {
